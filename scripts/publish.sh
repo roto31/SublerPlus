@@ -71,7 +71,10 @@ sync_wiki() {
   wiki_url="${REPO_URL%.git}.wiki.git"
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
-  git clone "$wiki_url" "$tmp/wiki"
+  if ! git clone "$wiki_url" "$tmp/wiki"; then
+    echo "Wiki clone failed (maybe wiki disabled). Skipping wiki sync."
+    return
+  fi
   dir="$tmp/wiki"
 
   # Map project docs into wiki pages.
