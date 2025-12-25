@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SublerPlus WebUI</title>
+  <link rel="stylesheet" href="../Assets/style.css">
+</head>
+<body>
+  <header>
+    <h1>SublerPlus Web Dashboard</h1>
+    <p>Preview/search metadata (TPDB/TMDB) and review recent updates.</p>
+  </header>
+  <main>
+    <section class="card" aria-label="Drag and drop files">
+      <h2>Drag & Drop Files</h2>
+      <div id="dropzone" class="dropzone" aria-label="Drop files here to add them for processing">
+        Drop files here or <input type="file" id="fileInput" multiple />
+      </div>
+      <textarea id="output" rows="6" readonly aria-label="Recent file actions"></textarea>
+    </section>
+    <section class="card" aria-label="Search">
+      <h2>Search</h2>
+      <div class="input-row">
+        <input id="query" type="text" placeholder="Title or performer">
+        <button id="search-btn">Search</button>
+      </div>
+      <div id="results" class="list"></div>
+    </section>
+    <section class="card" aria-label="Status" aria-live="polite">
+      <h2>Status</h2>
+      <pre id="status" aria-live="polite">Idle</pre>
+    </section>
+    <section class="card" aria-label="Activity log">
+      <h2>Activity</h2>
+      <pre id="activity" aria-live="polite">No activity yet.</pre>
+    </section>
+  </main>
+  <script src="../Assets/main.js"></script>
+</body>
+</html>
+

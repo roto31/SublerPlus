@@ -1,0 +1,7 @@
+{
+  "providers": [
+    { "id": "subler", "type": "local", "adult": false },
+    { "id": "tpdb", "type": "remote", "adult": true }
+  ]
+}
+
