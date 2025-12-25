@@ -43,7 +43,7 @@ struct SettingsView: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("TPDB Minimum Confidence: \(String(format: \"%.2f\", viewModel.tpdbConfidence))")
+                    Text("TPDB Minimum Confidence: \(String(format: "%.2f", viewModel.tpdbConfidence))")
                     Slider(value: $viewModel.tpdbConfidence, in: 0...1, step: 0.05)
                 }
                 HStack(spacing: 12) {
