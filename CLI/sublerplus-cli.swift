@@ -6,10 +6,10 @@ struct SublerPlusCLI {
     static func main() async {
         let args = CommandLine.arguments.dropFirst()
         guard let first = args.first else {
-            print("Usage: sublerplus-cli <media-file>")
+            print("Usage: sublerplus-cli <media-file-or-folder>")
             return
         }
-        let fileURL = URL(fileURLWithPath: first)
+        let pathURL = URL(fileURLWithPath: first)
         let keychain = KeychainController()
         let mp4 = SublerMP4Handler()
         let tpdbKey = keychain.get(key: "tpdb") ??
@@ -34,16 +34,41 @@ struct SublerPlusCLI {
         let registry = ProvidersRegistry(providers: providers)
         let pipeline = MetadataPipeline(registry: registry, mp4Handler: mp4)
 
-        do {
-            let details = try await pipeline.enrich(file: fileURL, includeAdult: true)
-            if let details {
-                print("Updated metadata for \(details.title)")
-            } else {
-                print("Ambiguous match for \(fileURL.lastPathComponent); please resolve in app.")
-            }
-        } catch {
-            print("Failed: \(error)")
+        let files = collectMediaFiles(at: pathURL)
+        if files.isEmpty {
+            print("No media files found at \(pathURL.path)")
+            return
         }
+        for fileURL in files {
+            do {
+                let details = try await pipeline.enrich(file: fileURL, includeAdult: true, preference: .balanced)
+                if let details {
+                    print("Updated metadata for \(fileURL.lastPathComponent): \(details.title)")
+                } else {
+                    print("Ambiguous match for \(fileURL.lastPathComponent); please resolve in app.")
+                }
+            } catch {
+                print("Failed for \(fileURL.lastPathComponent): \(error)")
+            }
+        }
+    }
+
+    private static func collectMediaFiles(at url: URL) -> [URL] {
+        var results: [URL] = []
+        let exts = ["mp4","m4v","mov"]
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+            if let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil) {
+                for case let file as URL in enumerator {
+                    if exts.contains(file.pathExtension.lowercased()) {
+                        results.append(file)
+                    }
+                }
+            }
+        } else if exts.contains(url.pathExtension.lowercased()) {
+            results.append(url)
+        }
+        return results
     }
 }
 

@@ -10,6 +10,7 @@ public struct MetadataDetails: Sendable, Identifiable, Codable {
     public let performers: [String]
     public let coverURL: URL?
     public let rating: Double?
+    public let source: String?
 
     public init(
         id: String,
@@ -20,7 +21,8 @@ public struct MetadataDetails: Sendable, Identifiable, Codable {
         tags: [String] = [],
         performers: [String] = [],
         coverURL: URL? = nil,
-        rating: Double? = nil
+        rating: Double? = nil,
+        source: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -31,6 +33,24 @@ public struct MetadataDetails: Sendable, Identifiable, Codable {
         self.performers = performers
         self.coverURL = coverURL
         self.rating = rating
+        self.source = source
+    }
+}
+
+public extension MetadataDetails {
+    func withSource(_ source: String) -> MetadataDetails {
+        MetadataDetails(
+            id: id,
+            title: title,
+            synopsis: synopsis,
+            releaseDate: releaseDate,
+            studio: studio,
+            tags: tags,
+            performers: performers,
+            coverURL: coverURL,
+            rating: rating,
+            source: source
+        )
     }
 }
 

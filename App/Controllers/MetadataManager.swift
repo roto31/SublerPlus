@@ -8,6 +8,12 @@ public enum MetadataError: Error, Equatable {
     case retainOriginalsCopyFailed
 }
 
+public enum ProviderPreference: String, Codable, Sendable {
+    case balanced
+    case scoreFirst
+    case yearFirst
+}
+
 public protocol MP4Handler: Sendable {
     func readMetadata(at url: URL) throws -> MetadataHint
     func writeMetadata(_ metadata: MetadataDetails, tags: [String: Any], to url: URL) throws
@@ -132,13 +138,19 @@ public struct AppSettings: Codable {
     public var lastKeyRotation: Date?
     public var retainOriginals: Bool
     public var outputDirectory: String?
+    public var generateNFO: Bool
+    public var nfoOutputDirectory: String?
+    public var tvNamingTemplate: String
 
-    public init(adultEnabled: Bool = false, tpdbConfidence: Double = 0.5, lastKeyRotation: Date? = nil, retainOriginals: Bool = false, outputDirectory: String? = nil) {
+    public init(adultEnabled: Bool = false, tpdbConfidence: Double = 0.5, lastKeyRotation: Date? = nil, retainOriginals: Bool = false, outputDirectory: String? = nil, generateNFO: Bool = false, nfoOutputDirectory: String? = nil, tvNamingTemplate: String = "S%02dE%02d - %t") {
         self.adultEnabled = adultEnabled
         self.tpdbConfidence = tpdbConfidence
         self.lastKeyRotation = lastKeyRotation
         self.retainOriginals = retainOriginals
         self.outputDirectory = outputDirectory
+        self.generateNFO = generateNFO
+        self.nfoOutputDirectory = nfoOutputDirectory
+        self.tvNamingTemplate = tvNamingTemplate
     }
 }
 
@@ -180,8 +192,13 @@ public final class ProvidersRegistry {
         providers.forEach { store[$0.id] = $0 }
     }
 
-    public func all(includeAdult: Bool) -> [PipelineMetadataProvider] {
-        store.values.filter { includeAdult || !$0.isAdult }
+    public func all(includeAdult: Bool, preference: ProviderPreference = .balanced) -> [PipelineMetadataProvider] {
+        let filtered = store.values.filter { includeAdult || !$0.isAdult }
+        switch preference {
+        case .balanced: return Array(filtered)
+        case .scoreFirst: return Array(filtered).sorted { $0.id < $1.id }
+        case .yearFirst: return Array(filtered).sorted { $0.isAdult && !$1.isAdult }
+        }
     }
 }
 
@@ -191,6 +208,9 @@ public final class MetadataPipeline {
     private let artwork: ArtworkCacheManager?
     public var retainOriginals: Bool = false
     public var outputDirectory: URL?
+    public var generateNFO: Bool = false
+    public var nfoOutputDirectory: URL?
+    public var tvNamingTemplate: String = "S%02dE%02d - %t"
 
     public init(registry: ProvidersRegistry, mp4Handler: MP4Handler, artwork: ArtworkCacheManager? = nil) {
         self.registry = registry
@@ -201,24 +221,39 @@ public final class MetadataPipeline {
     public func enrich(
         file: URL,
         includeAdult: Bool,
+        preference: ProviderPreference = .balanced,
         onAmbiguous: (([MetadataDetails]) async -> MetadataDetails?)? = nil
     ) async throws -> MetadataDetails? {
         guard isSupportedMedia(file) else { throw MetadataError.unsupportedFileType }
         let hint = try mp4Handler.readMetadata(at: file)
-        let providers = registry.all(includeAdult: includeAdult)
+        let providers = registry.all(includeAdult: includeAdult, preference: preference)
+
+        var candidates: [MetadataDetails] = []
         for provider in providers {
             do {
                 let details = try await provider.fetch(for: file, hint: hint)
-                let cover = await artwork?.fetchArtwork(from: details.coverURL)
-                let tags = mp4TagUpdates(from: details, coverData: cover)
-                let targetURL = try await destinationURL(for: file)
-                try mp4Handler.writeMetadata(details, tags: tags, to: targetURL)
-                return details
+                let annotated = details.withSource(provider.id)
+                candidates.append(annotated)
             } catch {
                 continue
             }
         }
-        throw MetadataError.noProviderMatch
+
+        guard !candidates.isEmpty else { throw MetadataError.noProviderMatch }
+
+        let best = pickBestMatch(from: candidates, hint: hint, preference: preference)
+        if candidates.count > 1, let onAmbiguous {
+            let choice = await onAmbiguous(candidates)
+            if let choice {
+                try await writeResolved(details: choice, to: file)
+                return choice
+            } else {
+                return nil
+            }
+        } else {
+            try await writeResolved(details: best, to: file)
+            return best
+        }
     }
 
     public func writeResolved(details: MetadataDetails, to file: URL) async throws {
@@ -226,6 +261,14 @@ public final class MetadataPipeline {
         let tags = mp4TagUpdates(from: details, coverData: cover)
         let targetURL = try await destinationURL(for: file)
         try mp4Handler.writeMetadata(details, tags: tags, to: targetURL)
+        if generateNFO {
+            let generator = NFOGenerator()
+            let nfo = generator.generate(details: details)
+            let dir = nfoOutputDirectory ?? targetURL.deletingLastPathComponent()
+            let nfoURL = dir.appendingPathComponent(targetURL.deletingPathExtension().lastPathComponent).appendingPathExtension("nfo")
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? nfo.data(using: .utf8)?.write(to: nfoURL)
+        }
     }
 }
 
@@ -248,6 +291,27 @@ extension MetadataPipeline {
         } catch {
             throw MetadataError.retainOriginalsCopyFailed
         }
+    }
+
+    private func pickBestMatch(from candidates: [MetadataDetails], hint: MetadataHint, preference: ProviderPreference) -> MetadataDetails {
+        func score(_ d: MetadataDetails) -> Double {
+            let base = d.rating ?? 0
+            let yearDiff: Double
+            if let hy = hint.year, let dy = d.releaseDate?.yearComponent {
+                yearDiff = Double(abs(hy - dy))
+            } else {
+                yearDiff = 5
+            }
+            switch preference {
+            case .balanced:
+                return base - (yearDiff * 0.1)
+            case .scoreFirst:
+                return base
+            case .yearFirst:
+                return base - (yearDiff * 0.25)
+            }
+        }
+        return candidates.max(by: { score($0) < score($1) }) ?? candidates[0]
     }
 }
 

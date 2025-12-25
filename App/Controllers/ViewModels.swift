@@ -15,6 +15,14 @@ public final class AppViewModel: ObservableObject {
     @Published public var pendingAmbiguity: AmbiguousMatch?
     @Published public var showAmbiguitySheet: Bool = false
     @Published public var tokenMissing: Bool = false
+    @Published public var searchTitle: String = ""
+    @Published public var searchStudio: String = ""
+    @Published public var searchYearFrom: String = ""
+    @Published public var searchYearTo: String = ""
+    @Published public var searchActors: String = ""
+    @Published public var searchDirectors: String = ""
+    @Published public var searchAirDate: String = ""
+    @Published public var providerPreference: ProviderPreference = .balanced
 
     private let settingsStore: SettingsStore
     private let pipeline: MetadataPipeline
@@ -121,11 +129,29 @@ public final class AppViewModel: ObservableObject {
         searchAdultMetadata(for: searchQuery)
     }
 
+    public func runAdvancedSearch() {
+        var components: [String] = []
+        if !searchTitle.isEmpty { components.append(searchTitle) }
+        if !searchStudio.isEmpty { components.append(searchStudio) }
+        if !searchActors.isEmpty { components.append(searchActors) }
+        if !searchDirectors.isEmpty { components.append(searchDirectors) }
+        if !searchAirDate.isEmpty { components.append(searchAirDate) }
+        if let from = Int(searchYearFrom) {
+            components.append("year:\(from)")
+        }
+        if let to = Int(searchYearTo) {
+            components.append("year:\(to)")
+        }
+        let query = components.joined(separator: " ")
+        guard !query.isEmpty else { return }
+        searchAdultMetadata(for: query)
+    }
+
     public func enrich(file url: URL) {
         Task {
             do {
                 status = "Enriching \(url.lastPathComponent)"
-                let details = try await pipeline.enrich(file: url, includeAdult: adultEnabled, onAmbiguous: { choices in
+                let details = try await pipeline.enrich(file: url, includeAdult: adultEnabled, preference: providerPreference, onAmbiguous: { choices in
                     let match = AmbiguousMatch(file: url, choices: choices)
                     if let auto = self.autoResolve(match: match) {
                         return auto
@@ -192,7 +218,7 @@ public final class AppViewModel: ObservableObject {
                     await self.batchLimiter.acquire()
                     await self.jobQueue.update(jobID: job.id, status: .running, message: job.url.lastPathComponent)
                     do {
-                        let details = try await self.pipeline.enrich(file: job.url, includeAdult: self.adultEnabled, onAmbiguous: { choices in
+                        let details = try await self.pipeline.enrich(file: job.url, includeAdult: self.adultEnabled, preference: self.providerPreference, onAmbiguous: { choices in
                             let match = AmbiguousMatch(file: job.url, choices: choices)
                             if let auto = await MainActor.run(body: { self.autoResolve(match: match) }) { return auto }
                             await MainActor.run { [weak self] in
@@ -294,6 +320,9 @@ public final class SettingsViewModel: ObservableObject {
     @Published public var keyRotationInfo: String = ""
     @Published public var retainOriginals: Bool = false
     @Published public var outputDirectory: URL?
+    @Published public var generateNFO: Bool = false
+    @Published public var nfoOutputDirectory: URL?
+    @Published public var tvNamingTemplate: String = "S%02dE%02d - %t"
 
     private let settingsStore: SettingsStore
     private let apiKeys: APIKeyManager
@@ -317,6 +346,9 @@ public final class SettingsViewModel: ObservableObject {
         keyRotationInfo = rotationText()
         retainOriginals = settings.retainOriginals
         outputDirectory = settings.outputDirectory.flatMap { URL(fileURLWithPath: $0) }
+        generateNFO = settings.generateNFO
+        nfoOutputDirectory = settings.nfoOutputDirectory.flatMap { URL(fileURLWithPath: $0) }
+        tvNamingTemplate = settings.tvNamingTemplate
     }
 
     public func save() {
@@ -327,6 +359,9 @@ public final class SettingsViewModel: ObservableObject {
                 settings.lastKeyRotation = lastRotation
                 settings.retainOriginals = retainOriginals
                 settings.outputDirectory = outputDirectory?.path
+                settings.generateNFO = generateNFO
+                settings.nfoOutputDirectory = nfoOutputDirectory?.path
+                settings.tvNamingTemplate = tvNamingTemplate
             }
             apiKeys.saveTPDBKey(tpdbKey)
             apiKeys.saveTMDBKey(tmdbKey)
@@ -350,6 +385,16 @@ public final class SettingsViewModel: ObservableObject {
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
             outputDirectory = url
+        }
+    }
+
+    public func pickNFOOutputDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            nfoOutputDirectory = url
         }
     }
 

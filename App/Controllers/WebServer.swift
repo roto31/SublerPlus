@@ -176,7 +176,7 @@ public final class WebServer {
         guard isSupportedMedia(fileURL) else { return errorResponse(415, "Unsupported Media Type") }
         await status.add("Enrich start: \(fileURL.lastPathComponent)")
         do {
-            let details = try await pipeline.enrich(file: fileURL, includeAdult: req.includeAdult)
+                let details = try await pipeline.enrich(file: fileURL, includeAdult: req.includeAdult, preference: .balanced)
             if let details {
                 await status.add("Enrich complete: \(details.title)")
                 return jsonResponse(EnrichResponse(details: details))

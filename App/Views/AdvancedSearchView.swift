@@ -3,49 +3,87 @@ import SublerPlusCore
 
 struct AdvancedSearchView: View {
     @ObservedObject var viewModel: AppViewModel
-    @State private var query: String = ""
-    @State private var performer: String = ""
-    @State private var year: String = ""
-    @State private var studio: String = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Form {
-            Section("Keywords") {
-                TextField("Title", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Title")
-                TextField("Performer", text: $performer)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Performer")
-                TextField("Year", text: $year)
-                    .textFieldStyle(.roundedBorder)
-                    .onReceive(year.publisher.collect()) { newValue in
-                        let filtered = newValue.filter { "0123456789".contains($0) }
-                        if filtered != newValue {
-                            self.year = String(filtered)
-                        }
-                    }
-                    .accessibilityLabel("Year")
-                TextField("Studio / Network", text: $studio)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Studio or Network")
-            }
-            Section {
-                Button(action: {
-                    let combined = [query, performer, studio, year].filter { !$0.isEmpty }.joined(separator: " ")
-                    viewModel.searchAdultMetadata(for: combined)
-                }) {
-                    Text("Search")
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Advanced Search")
+                .font(.title2)
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                GridRow {
+                    Text("Title")
+                    TextField("Title or keywords", text: $viewModel.searchTitle)
+                        .textFieldStyle(.roundedBorder)
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(query.isEmpty && performer.isEmpty && studio.isEmpty && year.isEmpty)
-                .buttonStyle(.borderedProminent)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                GridRow {
+                    Text("Studio/Network")
+                    TextField("Studio or network", text: $viewModel.searchStudio)
+                        .textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("Year")
+                    HStack {
+                        TextField("From", text: $viewModel.searchYearFrom)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                        Text("to")
+                        TextField("To", text: $viewModel.searchYearTo)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                    }
+                }
+                GridRow {
+                    Text("Actors/Actresses")
+                    TextField("Comma-separated", text: $viewModel.searchActors)
+                        .textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("Directors/Producers")
+                    TextField("Comma-separated", text: $viewModel.searchDirectors)
+                        .textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("Rough Air Date (TV)")
+                    TextField("YYYY-MM-DD", text: $viewModel.searchAirDate)
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
+
+            HStack {
+                Button("Search") { viewModel.runAdvancedSearch() }
+                    .keyboardShortcut(.return, modifiers: [])
+                    .buttonStyle(.borderedProminent)
+                Spacer()
+                Picker("Provider weighting", selection: $viewModel.providerPreference) {
+                    Text("Balanced").tag(AppViewModel.ProviderPreference.balanced)
+                    Text("Score-first").tag(.scoreFirst)
+                    Text("Year-first").tag(.yearFirst)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 320)
+            }
+
+            Divider()
+
+            List(viewModel.searchResults, id: \.id) { result in
+                VStack(alignment: .leading) {
+                    Text(result.title)
+                        .font(.headline)
+                    if let year = result.year {
+                        Text("Year: \(year)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    if let score = result.score {
+                        Text(String(format: "Score: %.2f", score))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
         }
         .padding()
-        .animation(reduceMotion ? nil : .default, value: query + performer + studio + year)
+        .animation(reduceMotion ? nil : .default, value: viewModel.searchResults.count)
     }
 }
 

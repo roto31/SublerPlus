@@ -36,6 +36,24 @@ struct SettingsView: View {
                         viewModel.pickOutputDirectory()
                     }
                 }
+                Toggle("Generate NFO sidecar", isOn: $viewModel.generateNFO)
+                HStack {
+                    Text("NFO folder:")
+                    Text(viewModel.nfoOutputDirectory?.path ?? "Same as media")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button("Choose...") {
+                        viewModel.pickNFOOutputDirectory()
+                    }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("TV naming template")
+                    TextField("Template (e.g., S%02dE%02d - %t)", text: $viewModel.tvNamingTemplate)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                }
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Web UI Token (optional, recommended)")
                     SecureField("Token", text: $viewModel.webToken)
