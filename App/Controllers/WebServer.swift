@@ -47,7 +47,7 @@ public actor StatusStream {
         if events.count > capacity {
             events.removeFirst(events.count - capacity)
         }
-        AppLog.log("[Status] \(clean)", level: .minimal)
+        AppLog.info(AppLog.webui, "[Status] \(clean)")
     }
 
     public func recent(limit: Int = 50) -> [StatusEvent] {
