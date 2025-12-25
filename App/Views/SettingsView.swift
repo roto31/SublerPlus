@@ -24,6 +24,18 @@ struct SettingsView: View {
                     SecureField("Key", text: $viewModel.tvdbKey)
                         .textFieldStyle(.roundedBorder)
                 }
+                Toggle("Retain originals (write output copy)", isOn: $viewModel.retainOriginals)
+                HStack {
+                    Text("Output folder:")
+                    Text(viewModel.outputDirectory?.path ?? "Not set")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button("Choose...") {
+                        viewModel.pickOutputDirectory()
+                    }
+                }
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Web UI Token (optional, recommended)")
                     SecureField("Token", text: $viewModel.webToken)

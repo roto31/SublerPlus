@@ -70,7 +70,8 @@ public final class AppViewModel: ObservableObject {
     public var hasSelection: Bool { selectedFile != nil }
 
     public func addFiles(_ urls: [URL]) {
-        let unique = urls.filter { !mediaFiles.contains($0) }
+        let allowed = urls.filter { ["mp4","m4v","mov"].contains($0.pathExtension.lowercased()) }
+        let unique = allowed.filter { !mediaFiles.contains($0) }
         mediaFiles.append(contentsOf: unique)
     }
 
@@ -291,6 +292,8 @@ public final class SettingsViewModel: ObservableObject {
     @Published public var tvdbKey: String = ""
     @Published public var webToken: String = ""
     @Published public var keyRotationInfo: String = ""
+    @Published public var retainOriginals: Bool = false
+    @Published public var outputDirectory: URL?
 
     private let settingsStore: SettingsStore
     private let apiKeys: APIKeyManager
@@ -312,6 +315,8 @@ public final class SettingsViewModel: ObservableObject {
         webToken = apiKeys.loadWebToken() ?? ""
         lastRotation = settings.lastKeyRotation
         keyRotationInfo = rotationText()
+        retainOriginals = settings.retainOriginals
+        outputDirectory = settings.outputDirectory.flatMap { URL(fileURLWithPath: $0) }
     }
 
     public func save() {
@@ -320,6 +325,8 @@ public final class SettingsViewModel: ObservableObject {
                 settings.adultEnabled = adultEnabled
                 settings.tpdbConfidence = tpdbConfidence
                 settings.lastKeyRotation = lastRotation
+                settings.retainOriginals = retainOriginals
+                settings.outputDirectory = outputDirectory?.path
             }
             apiKeys.saveTPDBKey(tpdbKey)
             apiKeys.saveTMDBKey(tmdbKey)
@@ -334,6 +341,16 @@ public final class SettingsViewModel: ObservableObject {
         webToken = UUID().uuidString.replacingOccurrences(of: "-", with: "")
         lastRotation = Date()
         keyRotationInfo = rotationText()
+    }
+
+    public func pickOutputDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            outputDirectory = url
+        }
     }
 
     public func markRotatedNow() {

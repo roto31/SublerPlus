@@ -61,9 +61,9 @@ struct AppDependencies {
             ProcessInfo.processInfo.environment["TPDB_API_KEY"] ?? ""
         let tpdbClient = TPDBClient(apiKey: tpdbKey)
         let tpdbProvider = ThePornDBProvider(client: tpdbClient)
-        let tmdbKey = ProcessInfo.processInfo.environment["TMDB_API_KEY"]
+        let tmdbKey = keychain.get(key: "tmdb") ?? ProcessInfo.processInfo.environment["TMDB_API_KEY"]
         let tmdbProvider = StandardMetadataProvider(apiKey: tmdbKey)
-        let tvdbKey = ProcessInfo.processInfo.environment["TVDB_API_KEY"]
+        let tvdbKey = keychain.get(key: "tvdb") ?? ProcessInfo.processInfo.environment["TVDB_API_KEY"]
         let tvdbProvider = TVDBProvider(apiKey: tvdbKey)
 
         let adapter = SearchProviderAdapter(
@@ -118,6 +118,10 @@ struct AppDependencies {
         let registry = ProvidersRegistry(providers: providerList)
         let artworkCache = ArtworkCacheManager()
         let pipeline = MetadataPipeline(registry: registry, mp4Handler: mp4, artwork: artworkCache)
+        pipeline.retainOriginals = settingsStore.settings.retainOriginals
+        if let outputPath = settingsStore.settings.outputDirectory {
+            pipeline.outputDirectory = URL(fileURLWithPath: outputPath)
+        }
         let statusStream = StatusStream()
         let jobQueue = JobQueue(concurrency: 2, statusStream: statusStream)
         let webToken = keychain.get(key: "webui_token") ?? ProcessInfo.processInfo.environment["WEBUI_TOKEN"]

@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 public enum MetadataError: Error, Equatable {
     case unsupportedFileType
     case noProviderMatch
+    case retainOriginalsCopyFailed
 }
 
 public protocol MP4Handler: Sendable {
@@ -129,11 +130,15 @@ public struct AppSettings: Codable {
     public var adultEnabled: Bool
     public var tpdbConfidence: Double
     public var lastKeyRotation: Date?
+    public var retainOriginals: Bool
+    public var outputDirectory: String?
 
-    public init(adultEnabled: Bool = false, tpdbConfidence: Double = 0.5, lastKeyRotation: Date? = nil) {
+    public init(adultEnabled: Bool = false, tpdbConfidence: Double = 0.5, lastKeyRotation: Date? = nil, retainOriginals: Bool = false, outputDirectory: String? = nil) {
         self.adultEnabled = adultEnabled
         self.tpdbConfidence = tpdbConfidence
         self.lastKeyRotation = lastKeyRotation
+        self.retainOriginals = retainOriginals
+        self.outputDirectory = outputDirectory
     }
 }
 
@@ -184,6 +189,8 @@ public final class MetadataPipeline {
     private let registry: ProvidersRegistry
     private let mp4Handler: MP4Handler
     private let artwork: ArtworkCacheManager?
+    public var retainOriginals: Bool = false
+    public var outputDirectory: URL?
 
     public init(registry: ProvidersRegistry, mp4Handler: MP4Handler, artwork: ArtworkCacheManager? = nil) {
         self.registry = registry
@@ -204,7 +211,8 @@ public final class MetadataPipeline {
                 let details = try await provider.fetch(for: file, hint: hint)
                 let cover = await artwork?.fetchArtwork(from: details.coverURL)
                 let tags = mp4TagUpdates(from: details, coverData: cover)
-                try mp4Handler.writeMetadata(details, tags: tags, to: file)
+                let targetURL = try await destinationURL(for: file)
+                try mp4Handler.writeMetadata(details, tags: tags, to: targetURL)
                 return details
             } catch {
                 continue
@@ -216,13 +224,31 @@ public final class MetadataPipeline {
     public func writeResolved(details: MetadataDetails, to file: URL) async throws {
         let cover = await artwork?.fetchArtwork(from: details.coverURL)
         let tags = mp4TagUpdates(from: details, coverData: cover)
-        try mp4Handler.writeMetadata(details, tags: tags, to: file)
+        let targetURL = try await destinationURL(for: file)
+        try mp4Handler.writeMetadata(details, tags: tags, to: targetURL)
     }
 }
 
 private func isSupportedMedia(_ url: URL) -> Bool {
     let ext = url.pathExtension.lowercased()
     return ["mp4", "m4v", "mov"].contains(ext)
+}
+
+extension MetadataPipeline {
+    private func destinationURL(for original: URL) async throws -> URL {
+        guard retainOriginals, let outputDirectory else { return original }
+        let name = original.lastPathComponent
+        let target = outputDirectory.appendingPathComponent(name)
+        do {
+            if FileManager.default.fileExists(atPath: target.path) {
+                try FileManager.default.removeItem(at: target)
+            }
+            try FileManager.default.copyItem(at: original, to: target)
+            return target
+        } catch {
+            throw MetadataError.retainOriginalsCopyFailed
+        }
+    }
 }
 
 public struct AmbiguousDetails {
