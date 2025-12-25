@@ -14,7 +14,7 @@ SwiftUI macOS app (12+) for MP4 metadata enrichment. Includes adult + standard p
 
 ## Requirements
 - macOS 12+; Swift 5.9+.
-- API keys: TPDB (adult), TMDB, TVDB. Stored in Keychain via Settings, or provided via env vars.
+- API keys: Stored in Keychain via Settings, or provided via env vars.
 
 ## Setup
 ```bash
