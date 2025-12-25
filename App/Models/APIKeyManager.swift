@@ -36,5 +36,29 @@ public final class APIKeyManager {
     public func clearWebToken() {
         store.remove(key: "webui_token")
     }
+
+    public func saveTMDBKey(_ key: String) {
+        store.set(key: "tmdb", value: key)
+    }
+
+    public func loadTMDBKey() -> String? {
+        store.get(key: "tmdb")
+    }
+
+    public func clearTMDBKey() {
+        store.remove(key: "tmdb")
+    }
+
+    public func saveTVDBKey(_ key: String) {
+        store.set(key: "tvdb", value: key)
+    }
+
+    public func loadTVDBKey() -> String? {
+        store.get(key: "tvdb")
+    }
+
+    public func clearTVDBKey() {
+        store.remove(key: "tvdb")
+    }
 }
 

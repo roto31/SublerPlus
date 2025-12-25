@@ -281,6 +281,8 @@ public final class SettingsViewModel: ObservableObject {
     @Published public var adultEnabled: Bool = false
     @Published public var tpdbConfidence: Double = 0.5
     @Published public var tpdbKey: String = ""
+    @Published public var tmdbKey: String = ""
+    @Published public var tvdbKey: String = ""
     @Published public var webToken: String = ""
     @Published public var keyRotationInfo: String = ""
 
@@ -299,6 +301,8 @@ public final class SettingsViewModel: ObservableObject {
         adultEnabled = settings.adultEnabled
         tpdbConfidence = settings.tpdbConfidence
         tpdbKey = apiKeys.loadTPDBKey() ?? ""
+        tmdbKey = apiKeys.loadTMDBKey() ?? ""
+        tvdbKey = apiKeys.loadTVDBKey() ?? ""
         webToken = apiKeys.loadWebToken() ?? ""
         lastRotation = settings.lastKeyRotation
         keyRotationInfo = rotationText()
@@ -312,6 +316,8 @@ public final class SettingsViewModel: ObservableObject {
                 settings.lastKeyRotation = lastRotation
             }
             apiKeys.saveTPDBKey(tpdbKey)
+            apiKeys.saveTMDBKey(tmdbKey)
+            apiKeys.saveTVDBKey(tvdbKey)
             if !webToken.isEmpty {
                 apiKeys.saveWebToken(webToken)
             }
