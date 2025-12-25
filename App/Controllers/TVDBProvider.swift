@@ -84,7 +84,7 @@ public final class TVDBProvider: MetadataProvider, @unchecked Sendable {
                     retryReq.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
                     let (retryData, retryResp) = try await session.data(for: retryReq)
                     guard let retryHttp = retryResp as? HTTPURLResponse, 200..<300 ~= retryHttp.statusCode else {
-                        throw NSError(domain: "TVDB", code: retryHttp.statusCode, userInfo: [NSLocalizedDescriptionKey: "TVDB request failed (\(retryHttp.statusCode))"])
+                        throw NSError(domain: "TVDB", code: (retryResp as? HTTPURLResponse)?.statusCode ?? -1, userInfo: [NSLocalizedDescriptionKey: "TVDB request failed"])
                     }
                     circuitBreaker.recordSuccess()
                     return retryData

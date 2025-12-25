@@ -92,7 +92,7 @@ EOF
 
   # Archive this build for historical reference
   mkdir -p "$version_dir"
-  rsync -a "$bundle_dir"/ "$version_dir/SublerPlus.app"/
+  cp -R "$bundle_dir" "$version_dir/SublerPlus.app"
   (cd "$build_root" && zip -qr "SublerPlus-$VERSION.zip" "SublerPlus-$VERSION/SublerPlus.app")
   echo "Archived build at $version_dir/SublerPlus.app (zip: $build_root/SublerPlus-$VERSION.zip)"
 fi
