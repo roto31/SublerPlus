@@ -118,9 +118,17 @@ struct AppDependencies {
         let registry = ProvidersRegistry(providers: providerList)
         let artworkCache = ArtworkCacheManager()
         let pipeline = MetadataPipeline(registry: registry, mp4Handler: mp4, artwork: artworkCache)
-        pipeline.retainOriginals = settingsStore.settings.retainOriginals
-        if let outputPath = settingsStore.settings.outputDirectory {
-            pipeline.outputDirectory = URL(fileURLWithPath: outputPath)
+        Task {
+            let settingsSnapshot = await settingsStore.settings
+            pipeline.retainOriginals = settingsSnapshot.retainOriginals
+            if let outputPath = settingsSnapshot.outputDirectory {
+                pipeline.outputDirectory = URL(fileURLWithPath: outputPath)
+            }
+            pipeline.generateNFO = settingsSnapshot.generateNFO
+            if let nfoPath = settingsSnapshot.nfoOutputDirectory {
+                pipeline.nfoOutputDirectory = URL(fileURLWithPath: nfoPath)
+            }
+            pipeline.tvNamingTemplate = settingsSnapshot.tvNamingTemplate
         }
         let statusStream = StatusStream()
         let jobQueue = JobQueue(concurrency: 2, statusStream: statusStream)

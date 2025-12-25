@@ -17,10 +17,16 @@ final class ProviderRetryTests: XCTestCase {
     }
 
     func testTVDBRetrySucceedsAfterFailure() async throws {
-        MockURLProtocol.reset(statusCodes: [500, 200], data: #"{"data":{"name":"t","overview":null,"firstAired":null,"network":null,"genres":[],"actors":[],"score":0,"imageURL":null}}"#.data(using: .utf8)!)
+        MockURLProtocol.reset(statusCodes: [], data: Data())
+        MockURLProtocol.handlers = [
+            { _ in (401, Data()) }, // initial login fail
+            { _ in (200, #"{"data":{"token":"tok","expiresIn":3600}}"#.data(using: .utf8)!) }, // login retry
+            { _ in (500, Data()) }, // first series attempt fails
+            { _ in (200, #"{"data":{"name":"t","overview":null,"firstAired":null,"network":null,"genres":[],"actors":[],"score":0,"imageURL":null}}"#.data(using: .utf8)!) } // retry success
+        ]
         let provider = TVDBProvider(apiKey: "x", session: makeSession())!
-        let data = try await provider.fetchWithRetry(path: "series/1", attempts: 2)
-        XCTAssertEqual(MockURLProtocol.requestCount, 2)
+        let data = try await provider.fetchWithRetry(path: "series/1", attempts: 4)
+        XCTAssertEqual(MockURLProtocol.requestCount, 4)
         XCTAssertFalse(data.isEmpty)
     }
 

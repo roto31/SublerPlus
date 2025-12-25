@@ -4,11 +4,23 @@ final class MockURLProtocol: URLProtocol {
     static var statusCodes: [Int] = [200]
     static var responseData: Data = Data()
     static var requestCount = 0
+    static var handlers: [(URLRequest) -> (Int, Data)] = []
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        if !MockURLProtocol.handlers.isEmpty {
+            let idx = min(MockURLProtocol.requestCount, MockURLProtocol.handlers.count - 1)
+            MockURLProtocol.requestCount += 1
+            let handler = MockURLProtocol.handlers[idx]
+            let (status, data) = handler(request)
+            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
         let idx = min(MockURLProtocol.requestCount, MockURLProtocol.statusCodes.count - 1)
         let status = MockURLProtocol.statusCodes[idx]
         MockURLProtocol.requestCount += 1
@@ -25,6 +37,7 @@ final class MockURLProtocol: URLProtocol {
         self.statusCodes = statusCodes
         self.responseData = data
         self.requestCount = 0
+        self.handlers = []
     }
 }
 

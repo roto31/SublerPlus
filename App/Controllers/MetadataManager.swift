@@ -297,7 +297,7 @@ extension MetadataPipeline {
         func score(_ d: MetadataDetails) -> Double {
             let base = d.rating ?? 0
             let yearDiff: Double
-            if let hy = hint.year, let dy = d.releaseDate?.yearComponent {
+            if let hy = hint.year, let dy = d.releaseDate.flatMap({ Calendar.current.dateComponents([.year], from: $0).year }) {
                 yearDiff = Double(abs(hy - dy))
             } else {
                 yearDiff = 5
