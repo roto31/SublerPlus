@@ -140,6 +140,11 @@ struct FileListView: View {
             }
         }
         .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.regularMaterial)
+        )
+        .padding()
         .animation(reduceMotion ? nil : .default, value: viewModel.mediaFiles)
         .animation(reduceMotion ? nil : .default, value: viewModel.status)
         .animation(reduceMotion ? nil : .default, value: viewModel.jobs)

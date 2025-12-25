@@ -32,9 +32,15 @@ struct WebContentContainer: View {
                     .disabled(true)
             }
             .padding(8)
+            .background(
+                LinearGradient(colors: [Color.accentColor.opacity(0.12), Color.clear],
+                               startPoint: .leading,
+                               endPoint: .trailing)
+            )
 
             WebContentView(model: model)
         }
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 

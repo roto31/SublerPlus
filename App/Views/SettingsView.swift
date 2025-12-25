@@ -14,16 +14,16 @@ struct SettingsView: View {
                     SecureField("Key", text: $viewModel.tpdbKey)
                         .textFieldStyle(.roundedBorder)
                 }
-            VStack(alignment: .leading, spacing: 8) {
-                Text("TMDB API Key")
-                SecureField("Key", text: $viewModel.tmdbKey)
-                    .textFieldStyle(.roundedBorder)
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                Text("TVDB API Key")
-                SecureField("Key", text: $viewModel.tvdbKey)
-                    .textFieldStyle(.roundedBorder)
-            }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("TMDB API Key")
+                    SecureField("Key", text: $viewModel.tmdbKey)
+                        .textFieldStyle(.roundedBorder)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("TVDB API Key")
+                    SecureField("Key", text: $viewModel.tvdbKey)
+                        .textFieldStyle(.roundedBorder)
+                }
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Web UI Token (optional, recommended)")
                     SecureField("Token", text: $viewModel.webToken)
@@ -58,6 +58,11 @@ struct SettingsView: View {
             }
             .padding(20)
             .frame(minWidth: 420, maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.regularMaterial)
+            )
+            .padding()
         }
     }
 }
