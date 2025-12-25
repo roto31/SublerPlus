@@ -4,12 +4,11 @@ import SublerPlusCore
 
 struct FileListView: View {
     @ObservedObject var viewModel: AppViewModel
-    @State private var selectedFile: URL?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            List(selection: $selectedFile) {
+            List(selection: $viewModel.selectedFile) {
                 ForEach(viewModel.mediaFiles, id: \.self) { fileURL in
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
@@ -137,6 +136,13 @@ struct FileListView: View {
                 .background(Color(nsColor: .windowBackgroundColor))
                 .cornerRadius(8)
                 .accessibilityElement(children: .combine)
+            }
+            
+            if let selected = viewModel.selectedFile {
+                let meta = viewModel.fileMetadata[selected]
+                let job = viewModel.job(for: selected)
+                FileDetailView(file: selected, details: meta, job: job)
+                    .accessibilityLabel("File details")
             }
         }
         .padding()

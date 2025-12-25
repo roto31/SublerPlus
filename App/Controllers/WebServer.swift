@@ -157,7 +157,7 @@ public final class WebServer {
         let providers = registry.all(includeAdult: req.includeAdult)
         let hint = MetadataHint(title: req.query)
         let tasks = providers.map { provider in
-            Task { try? await provider.fetch(for: URL(fileURLWithPath: "/dev/null"), hint: hint) }
+            Task { try? await provider.fetch(for: URL(fileURLWithPath: "/dev/null"), hint: hint).withSource(provider.id) }
         }
         var results: [MetadataDetails] = []
         for task in tasks {
@@ -166,7 +166,7 @@ public final class WebServer {
             }
         }
         let mapped = results.map {
-            MetadataResult(id: $0.id, title: $0.title, score: $0.rating, year: $0.releaseDate?.yearComponent)
+            MetadataResult(id: $0.id, title: $0.title, score: $0.rating, year: $0.releaseDate?.yearComponent, source: $0.source)
         }
         return jsonResponse(SearchResponse(results: mapped))
     }
@@ -191,17 +191,21 @@ public final class WebServer {
     }
 
     private func handleFiles(_ req: FilesRequest) async throws -> HttpResponse {
-        // For drag/drop files, just echo names and kick off background searches by basename
-        let safeFiles = req.files.compactMap { path -> URL? in
-            let url = URL(fileURLWithPath: path)
-            guard isSupportedMedia(url) else { return nil }
-            return url
+        // For drag/drop files coming from the browser we only receive filenames (no paths).
+        // Validate extensions and echo back to the user; native app handles real enqueueing.
+        let titles = req.files
+            .filter { name in
+                let lower = name.lowercased()
+                return lower.hasSuffix(".mp4") || lower.hasSuffix(".m4v") || lower.hasSuffix(".mov")
+            }
+            .map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
+        if titles.isEmpty {
+            return jsonResponse(SearchResponse(results: []))
         }
-        let titles = safeFiles.map { $0.deletingPathExtension().lastPathComponent }
         for title in titles {
-            await status.add("Queued search for \(title)")
+            await status.add("Received file hint from WebUI: \(title)")
         }
-        let mapped = titles.map { MetadataResult(id: UUID().uuidString, title: $0, score: nil, year: nil) }
+        let mapped = titles.map { MetadataResult(id: UUID().uuidString, title: $0, score: nil, year: nil, source: "webui") }
         return jsonResponse(SearchResponse(results: mapped))
     }
 
@@ -210,7 +214,11 @@ public final class WebServer {
     private func jsonResponse<T: Encodable>(_ value: T) -> HttpResponse {
         do {
             let data = try JSONEncoder().encode(value)
-            return .raw(200, "OK", ["Content-Type": "application/json", "Access-Control-Allow-Origin": "http://127.0.0.1:8080"]) { writer in
+            return .raw(200, "OK", [
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "http://127.0.0.1:8080",
+                "Access-Control-Allow-Headers": "Content-Type, X-Auth-Token"
+            ]) { writer in
                 try writer.write(data)
             }
         } catch {

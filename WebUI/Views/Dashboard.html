@@ -20,6 +20,11 @@
     </section>
     <section class="card" aria-label="Search">
       <h2>Search</h2>
+      <p class="hint">Optional: set token if configured in the macOS app.</p>
+      <div class="input-row">
+        <input id="token" type="password" placeholder="X-Auth-Token (optional)" aria-label="Authentication token">
+        <button onclick="localStorage.setItem('webui_token', document.getElementById('token').value)">Save Token</button>
+      </div>
       <div class="input-row">
         <input id="query" type="text" placeholder="Title or performer">
         <button id="search-btn">Search</button>

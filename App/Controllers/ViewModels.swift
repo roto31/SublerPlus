@@ -15,6 +15,7 @@ public final class AppViewModel: ObservableObject {
     @Published public var pendingAmbiguity: AmbiguousMatch?
     @Published public var showAmbiguitySheet: Bool = false
     @Published public var tokenMissing: Bool = false
+    @Published public var fileMetadata: [URL: MetadataDetails] = [:]
     @Published public var searchTitle: String = ""
     @Published public var searchStudio: String = ""
     @Published public var searchYearFrom: String = ""
@@ -167,6 +168,7 @@ public final class AppViewModel: ObservableObject {
                     let cover = await artworkCache.fetchArtwork(from: details.coverURL)
                     _ = mp4TagUpdates(from: details, coverData: cover)
                     status = "Updated metadata for \(details.title)"
+                    await MainActor.run { self.fileMetadata[url] = details }
                 } else {
                     status = "Enrichment deferred: awaiting user choice"
                 }
@@ -203,6 +205,7 @@ public final class AppViewModel: ObservableObject {
                 ambiguityQueue.removeAll { $0.id == match.id }
                 if pendingAmbiguity?.id == match.id { pendingAmbiguity = nil }
                 showAmbiguitySheet = false
+                fileMetadata[match.file] = choice
             }
         }
     }
@@ -232,6 +235,7 @@ public final class AppViewModel: ObservableObject {
                             let cover = await self.artworkCache.fetchArtwork(from: details.coverURL)
                             _ = mp4TagUpdates(from: details, coverData: cover)
                             await self.jobQueue.update(jobID: job.id, status: .succeeded, message: details.title)
+                            await MainActor.run { self.fileMetadata[job.url] = details }
                         } else {
                             await self.jobQueue.update(jobID: job.id, status: .failed, message: "Ambiguous; awaiting user choice")
                         }
@@ -258,6 +262,10 @@ public final class AppViewModel: ObservableObject {
     public func refreshJobs() async {
         let snapshot = await jobQueue.snapshot()
         await MainActor.run { jobs = snapshot }
+    }
+
+    public func job(for url: URL) -> Job? {
+        jobs.last { $0.url == url }
     }
 
     public func appendActivity(_ message: String) {
