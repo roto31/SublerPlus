@@ -159,6 +159,12 @@ public final class AppViewModel: ObservableObject {
         // placeholder for future deep links
     }
 
+    public func openHelp() {
+        if let url = URL(string: "https://github.com/roto31/SublerPlus/wiki") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     public func resolveAmbiguity(choice: MetadataDetails, for match: AmbiguousMatch) {
         Task {
             let key = cacheKey(for: match.file, choice: choice)

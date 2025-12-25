@@ -34,6 +34,12 @@ struct SublerPlusApp: App {
                 }
                 .keyboardShortcut("r", modifiers: [.command])
             }
+            CommandMenu("Help") {
+                Button("Open Help (Wiki)") {
+                    dependencies.appViewModel.openHelp()
+                }
+                .keyboardShortcut("/", modifiers: [.command, .shift])
+            }
         }
     }
 }

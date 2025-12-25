@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
   shift
-endwhile
+done
 
 echo "==> Building (mode: $mode)"
 if [[ "$mode" == "release" ]]; then
@@ -58,6 +58,41 @@ if [[ "$run_tests" == "1" ]]; then
   fi
 else
   echo "==> Tests skipped"
+fi
+
+if [[ "$mode" == "release" ]]; then
+  echo "==> Packaging app bundle (SublerPlus.app)"
+  bundle_dir="build/SublerPlus.app"
+  build_root="build/App builds"
+  version_stamp="$(date +%Y%m%d-%H%M%S)"
+  version_dir="$build_root/$version_stamp"
+
+  mkdir -p "$bundle_dir/Contents/MacOS"
+  mkdir -p "$bundle_dir/Contents/Resources"
+  cat > "$bundle_dir/Contents/Info.plist" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>SublerPlus</string>
+  <key>CFBundleIdentifier</key><string>com.sublerplus.app</string>
+  <key>CFBundleVersion</key><string>1.0.0</string>
+  <key>CFBundleShortVersionString</key><string>1.0.0</string>
+  <key>CFBundleExecutable</key><string>SublerPlusApp</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+</dict>
+</plist>
+EOF
+  cp .build/release/SublerPlusApp "$bundle_dir/Contents/MacOS/SublerPlusApp"
+  chmod +x "$bundle_dir/Contents/MacOS/SublerPlusApp"
+  echo "Bundle created at $bundle_dir (launchable from Finder)"
+
+  # Archive this build for historical reference
+  mkdir -p "$version_dir"
+  rsync -a "$bundle_dir"/ "$version_dir/SublerPlus.app"/
+  echo "Archived build at $version_dir/SublerPlus.app"
 fi
 
 echo "Done."
