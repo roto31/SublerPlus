@@ -118,7 +118,7 @@ struct RootShellView: View {
             SettingsView(viewModel: settingsViewModel)
                 .toolbar { settingsToolbar }
         case .webui:
-            WebContentView()
+                WebContentContainer()
         }
     }
 

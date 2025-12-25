@@ -7,6 +7,8 @@ public final class TVDBProvider: MetadataProvider, @unchecked Sendable {
     private let apiKey: String
     private let session: URLSession
     private let circuitBreaker = CircuitBreaker()
+    private var token: String?
+    private var tokenExpiry: Date?
 
     public init?(apiKey: String?, session: URLSession = .shared) {
         guard let key = apiKey, !key.isEmpty else { return nil }
@@ -71,8 +73,22 @@ public final class TVDBProvider: MetadataProvider, @unchecked Sendable {
             do {
                 var req = URLRequest(url: url)
                 req.httpMethod = "GET"
-                req.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                let token = try await validToken()
+                req.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                 let (data, resp) = try await session.data(for: req)
+                if let http = resp as? HTTPURLResponse, http.statusCode == 401 {
+                    // token expired, refresh once
+                    self.token = nil
+                    let newToken = try await validToken()
+                    var retryReq = req
+                    retryReq.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
+                    let (retryData, retryResp) = try await session.data(for: retryReq)
+                    guard let retryHttp = retryResp as? HTTPURLResponse, 200..<300 ~= retryHttp.statusCode else {
+                        throw NSError(domain: "TVDB", code: retryHttp.statusCode, userInfo: [NSLocalizedDescriptionKey: "TVDB request failed (\(retryHttp.statusCode))"])
+                    }
+                    circuitBreaker.recordSuccess()
+                    return retryData
+                }
                 guard let http = resp as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
                     throw NSError(domain: "TVDB", code: (resp as? HTTPURLResponse)?.statusCode ?? -1, userInfo: [NSLocalizedDescriptionKey: "TVDB request failed (\((resp as? HTTPURLResponse)?.statusCode ?? -1))"])
                 }
@@ -86,6 +102,35 @@ public final class TVDBProvider: MetadataProvider, @unchecked Sendable {
             }
         }
         throw lastError ?? URLError(.badServerResponse)
+    }
+}
+
+extension TVDBProvider {
+    private func validToken() async throws -> String {
+        if let token, let expiry = tokenExpiry, expiry > Date().addingTimeInterval(60) {
+            return token
+        }
+        return try await login()
+    }
+
+    private func login() async throws -> String {
+        var req = URLRequest(url: URL(string: "https://api4.thetvdb.com/v4/login")!)
+        req.httpMethod = "POST"
+        req.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body = ["apikey": apiKey]
+        req.httpBody = try JSONEncoder().encode(body)
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
+            throw NSError(domain: "TVDB", code: (resp as? HTTPURLResponse)?.statusCode ?? -1, userInfo: [NSLocalizedDescriptionKey: "TVDB login failed"])
+        }
+        let decoded = try JSONDecoder().decode(TVDBLoginResponse.self, from: data)
+        token = decoded.data.token
+        if let expires = decoded.data.expires {
+            tokenExpiry = Date(timeIntervalSince1970: TimeInterval(expires))
+        } else {
+            tokenExpiry = Date().addingTimeInterval(3600) // default 1h
+        }
+        return token!
     }
 }
 
@@ -111,5 +156,13 @@ private struct TVDBSeriesResponse: Codable {
         let imageURL: String?
     }
     let data: Series
+}
+
+private struct TVDBLoginResponse: Codable {
+    struct DataClass: Codable {
+        let token: String
+        let expires: Int?
+    }
+    let data: DataClass
 }
 

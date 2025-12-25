@@ -7,6 +7,9 @@ public final class StandardMetadataProvider: MetadataProvider, @unchecked Sendab
     private let apiKey: String
     private let session: URLSession
     private let circuitBreaker = CircuitBreaker()
+    private var imageBaseURL: URL = URL(string: "https://image.tmdb.org/t/p/")!
+    private var posterSizes: [String] = ["w500"]
+    private var configLoaded = false
 
     public init?(apiKey: String?, session: URLSession = .shared) {
         guard let key = apiKey, !key.isEmpty else { return nil }
@@ -16,7 +19,8 @@ public final class StandardMetadataProvider: MetadataProvider, @unchecked Sendab
 
     public func search(query: String) async throws -> [MetadataResult] {
         guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return [] }
-        let url = URL(string: "https://api.themoviedb.org/3/search/movie?api_key=\(apiKey)&query=\(encoded)")!
+        try await loadConfigurationIfNeeded()
+        let url = URL(string: "https://api.themoviedb.org/3/search/movie?api_key=\(apiKey)&include_adult=false&query=\(encoded)")!
         let data = try await fetchWithRetry(url: url)
         let decoded = try JSONDecoder().decode(TMDBSearchResponse.self, from: data)
         return decoded.results.map { movie in
@@ -33,13 +37,14 @@ public final class StandardMetadataProvider: MetadataProvider, @unchecked Sendab
         guard let intId = Int(id) else {
             throw NSError(domain: "TMDB", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid TMDB id"])
         }
+        try await loadConfigurationIfNeeded()
         let url = URL(string: "https://api.themoviedb.org/3/movie/\(intId)?api_key=\(apiKey)")!
         let data = try await fetchWithRetry(url: url)
         let movie = try JSONDecoder().decode(MovieDetails.self, from: data)
         let cast = try await fetchCast(for: intId)
         let releaseDate = movie.release_date.flatMap { isoDate($0) }
         let tags = movie.genres.map { $0.name }
-        let cover = movie.poster_path.flatMap { URL(string: "https://image.tmdb.org/t/p/w500\($0)") }
+        let cover = movie.poster_path.flatMap { posterURL(path: $0) }
         return MetadataDetails(
             id: String(movie.id),
             title: movie.title,
@@ -58,6 +63,27 @@ public final class StandardMetadataProvider: MetadataProvider, @unchecked Sendab
         let data = try await fetchWithRetry(url: url)
         let decoded = try JSONDecoder().decode(TMDBCrewResponse.self, from: data)
         return decoded.cast.prefix(10).map { $0.name }
+    }
+
+    private func loadConfigurationIfNeeded() async throws {
+        guard !configLoaded else { return }
+        let url = URL(string: "https://api.themoviedb.org/3/configuration?api_key=\(apiKey)")!
+        let data = try await fetchWithRetry(url: url)
+        let decoded = try JSONDecoder().decode(TMDBConfigurationResponse.self, from: data)
+        if let secure = decoded.images.secure_base_url, let u = URL(string: secure) {
+            imageBaseURL = u
+        } else if let base = decoded.images.base_url, let u = URL(string: base) {
+            imageBaseURL = u
+        }
+        if !decoded.images.poster_sizes.isEmpty {
+            posterSizes = decoded.images.poster_sizes
+        }
+        configLoaded = true
+    }
+
+    private func posterURL(path: String) -> URL? {
+        let size = posterSizes.contains("w500") ? "w500" : posterSizes.last ?? "original"
+        return imageBaseURL.appendingPathComponent(size).appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
     }
 
     internal func fetchWithRetry(url: URL, attempts: Int = 3) async throws -> Data {
@@ -125,4 +151,12 @@ private struct Genre: Codable { let id: Int; let name: String }
 private struct Company: Codable { let id: Int; let name: String }
 private struct TMDBCrewResponse: Codable { let cast: [TMDBCast] }
 private struct TMDBCast: Codable { let name: String }
+private struct TMDBConfigurationResponse: Codable {
+    struct Images: Codable {
+        let base_url: String?
+        let secure_base_url: String?
+        let poster_sizes: [String]
+    }
+    let images: Images
+}
 
