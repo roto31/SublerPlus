@@ -29,12 +29,22 @@ public final class KeychainController: APIKeyStore {
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: key,
-            kSecReturnData: true
+            kSecReturnData: true,
+            // Avoid prompting the user; fail fast if auth is required
+            kSecUseAuthenticationUI: kSecUseAuthenticationUIFail
         ]
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        switch status {
+        case errSecSuccess:
+            guard let data = item as? Data else { return nil }
+            return String(data: data, encoding: .utf8)
+        case errSecItemNotFound, errSecAuthFailed, errSecInteractionNotAllowed:
+            // No key or UI blocked: treat as missing to avoid prompts
+            return nil
+        default:
+            return nil
+        }
     }
 
     public func remove(key: String) {
