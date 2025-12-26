@@ -4,6 +4,7 @@ import WebKit
 struct WebContentContainer: View {
     @StateObject private var model = WebViewModel()
     @State private var address: String = "http://127.0.0.1:8080/"
+    @FocusState private var addressFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,6 +32,8 @@ struct WebContentContainer: View {
                 TextField("URL", text: $address, onCommit: loadAddress)
                     .textFieldStyle(.roundedBorder)
                     .disableAutocorrection(true)
+                    .focused($addressFocused)
+                    .onTapGesture { addressFocused = true }
             }
             .padding(8)
             .background(
@@ -43,6 +46,7 @@ struct WebContentContainer: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .onReceive(model.$currentURL.compactMap { $0 }) { url in
+            guard !addressFocused else { return } // don't overwrite while editing
             address = url.absoluteString
         }
     }
