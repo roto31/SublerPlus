@@ -7,6 +7,8 @@ const resultsEl = document.getElementById("results");
 const statusEl = document.getElementById("status");
 const activityEl = document.getElementById("activity");
 const tokenInput = document.getElementById("token");
+const homeBtn = document.getElementById("home-btn");
+const reloadBtn = document.getElementById("reload-btn");
 
 dropzone.addEventListener("dragover", (e) => {
   e.preventDefault();
@@ -33,6 +35,17 @@ searchBtn.addEventListener("click", async () => {
     log(`Search error: ${err.message}`);
   }
 });
+
+if (homeBtn) {
+  homeBtn.addEventListener("click", () => {
+    window.location.href = "/";
+  });
+}
+if (reloadBtn) {
+  reloadBtn.addEventListener("click", () => {
+    window.location.reload();
+  });
+}
 
 async function handleFiles(fileList) {
   const names = [];

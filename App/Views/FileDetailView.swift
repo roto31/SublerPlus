@@ -28,6 +28,28 @@ struct FileDetailView: View {
 
             if let details {
                 Divider()
+                if let url = details.coverURL {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                                .frame(width: 160, height: 90)
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxWidth: 260)
+                                .cornerRadius(6)
+                                .shadow(radius: 2)
+                        case .failure:
+                            Image(systemName: "photo")
+                                .frame(width: 160, height: 90)
+                                .foregroundColor(.secondary)
+                        @unknown default:
+                            EmptyView()
+                        }
+                    }
+                }
                 Text(details.title).font(.headline)
                 if let synopsis = details.synopsis {
                     Text(synopsis).font(.body)

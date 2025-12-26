@@ -22,6 +22,7 @@ mode="debug"
 run_tests=1
 security=0
 VERSION="${VERSION:-$(date +%Y.%m.%d-%H%M%S)}"
+PRUNE_BUILDS_DAYS="${PRUNE_BUILDS_DAYS:-7}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -95,6 +96,13 @@ EOF
   cp -R "$bundle_dir" "$version_dir/SublerPlus.app"
   (cd "$build_root" && zip -qr "SublerPlus-$VERSION.zip" "SublerPlus-$VERSION/SublerPlus.app")
   echo "Archived build at $version_dir/SublerPlus.app (zip: $build_root/SublerPlus-$VERSION.zip)"
+
+  # Optional pruning of old archives to limit disk usage
+  if [[ "$PRUNE_BUILDS_DAYS" -gt 0 ]]; then
+    echo "==> Pruning archives older than $PRUNE_BUILDS_DAYS days"
+    find "$build_root" -maxdepth 1 -type d -name "SublerPlus-*" -mtime +"$PRUNE_BUILDS_DAYS" -print -exec rm -rf {} \;
+    find "$build_root" -maxdepth 1 -type f -name "SublerPlus-*.zip" -mtime +"$PRUNE_BUILDS_DAYS" -print -exec rm -f {} \;
+  fi
 fi
 
 echo "Done."
