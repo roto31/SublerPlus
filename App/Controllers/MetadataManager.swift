@@ -141,8 +141,9 @@ public struct AppSettings: Codable {
     public var generateNFO: Bool
     public var nfoOutputDirectory: String?
     public var tvNamingTemplate: String
+    public var watchFolders: [String]
 
-    public init(adultEnabled: Bool = false, tpdbConfidence: Double = 0.5, lastKeyRotation: Date? = nil, retainOriginals: Bool = false, outputDirectory: String? = nil, generateNFO: Bool = false, nfoOutputDirectory: String? = nil, tvNamingTemplate: String = "S%02dE%02d - %t") {
+    public init(adultEnabled: Bool = false, tpdbConfidence: Double = 0.5, lastKeyRotation: Date? = nil, retainOriginals: Bool = false, outputDirectory: String? = nil, generateNFO: Bool = false, nfoOutputDirectory: String? = nil, tvNamingTemplate: String = "S%02dE%02d - %t", watchFolders: [String] = []) {
         self.adultEnabled = adultEnabled
         self.tpdbConfidence = tpdbConfidence
         self.lastKeyRotation = lastKeyRotation
@@ -151,6 +152,7 @@ public struct AppSettings: Codable {
         self.generateNFO = generateNFO
         self.nfoOutputDirectory = nfoOutputDirectory
         self.tvNamingTemplate = tvNamingTemplate
+        self.watchFolders = watchFolders
     }
 }
 
@@ -241,9 +243,11 @@ public final class MetadataPipeline {
 
         guard !candidates.isEmpty else { throw MetadataError.noProviderMatch }
 
-        let best = pickBestMatch(from: candidates, hint: hint, preference: preference)
-        if candidates.count > 1, let onAmbiguous {
-            let choice = await onAmbiguous(candidates)
+        let deduped = self.dedupeCandidates(candidates, hint: hint)
+
+        let best = pickBestMatch(from: deduped, hint: hint, preference: preference)
+        if deduped.count > 1, let onAmbiguous {
+            let choice = await onAmbiguous(deduped)
             if let choice {
                 try await writeResolved(details: choice, to: file)
                 return choice
@@ -296,22 +300,62 @@ extension MetadataPipeline {
     private func pickBestMatch(from candidates: [MetadataDetails], hint: MetadataHint, preference: ProviderPreference) -> MetadataDetails {
         func score(_ d: MetadataDetails) -> Double {
             let base = d.rating ?? 0
+            let providerBoost = providerWeight(for: d.source)
+            let dy = releaseYear(d)
             let yearDiff: Double
-            if let hy = hint.year, let dy = d.releaseDate.flatMap({ Calendar.current.dateComponents([.year], from: $0).year }) {
+            if let hy = hint.year, let dy {
                 yearDiff = Double(abs(hy - dy))
             } else {
-                yearDiff = 5
+                yearDiff = 6 // penalize unknown year slightly
             }
             switch preference {
             case .balanced:
-                return base - (yearDiff * 0.1)
+                return (base * providerBoost) - (yearDiff * 0.15) + providerBoost * 0.5
             case .scoreFirst:
-                return base
+                return (base * providerBoost) - (yearDiff * 0.05) + providerBoost
             case .yearFirst:
-                return base - (yearDiff * 0.25)
+                return (base * providerBoost) - (yearDiff * 0.3) + providerBoost * 0.4
             }
         }
         return candidates.max(by: { score($0) < score($1) }) ?? candidates[0]
+    }
+
+    private func providerWeight(for source: String?) -> Double {
+        switch source {
+        case "tmdb": return 1.1
+        case "tpdb": return 1.05
+        case "tvdb": return 1.0
+        case "subler": return 0.6
+        default: return 1.0
+        }
+    }
+
+    private func releaseYear(_ details: MetadataDetails) -> Int? {
+        details.releaseDate.flatMap { Calendar.current.dateComponents([.year], from: $0).year }
+    }
+
+    private func dedupeCandidates(_ list: [MetadataDetails], hint: MetadataHint) -> [MetadataDetails] {
+        var bestByKey: [String: MetadataDetails] = [:]
+        for item in list {
+            let key = dedupeKey(for: item, hint: hint)
+            if let existing = bestByKey[key] {
+                let currentScore = (item.rating ?? 0) * providerWeight(for: item.source)
+                let existingScore = (existing.rating ?? 0) * providerWeight(for: existing.source)
+                if currentScore > existingScore {
+                    bestByKey[key] = item
+                }
+            } else {
+                bestByKey[key] = item
+            }
+        }
+        return Array(bestByKey.values)
+    }
+
+    private func dedupeKey(for item: MetadataDetails, hint: MetadataHint) -> String {
+        let title = item.title.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let year = releaseYear(item) ?? hint.year ?? 0
+        let studio = (item.studio ?? "").lowercased()
+        return "\(title)|\(year)|\(studio)"
     }
 }
 

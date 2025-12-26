@@ -5,6 +5,7 @@ import SublerPlusCore
 struct FileListView: View {
     @ObservedObject var viewModel: AppViewModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isDropTargeted: Bool = false
 
     var body: some View {
         ScrollView {
@@ -37,11 +38,41 @@ struct FileListView: View {
                 }
                 .listStyle(.inset)
                 .frame(minHeight: 320, maxHeight: .infinity)
-                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
                     viewModel.handleDrop(providers: providers)
+                }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.accentColor.opacity(isDropTargeted ? 0.85 : 0), style: StrokeStyle(lineWidth: 2, dash: [6]))
+                )
+                .overlay {
+                    if isDropTargeted {
+                        Label("Drop to add files", systemImage: "tray.and.arrow.down")
+                            .padding(10)
+                            .background(.ultraThinMaterial)
+                            .cornerRadius(10)
+                            .transition(.opacity)
+                            .accessibilityLabel("Drop files to add them")
+                    }
                 }
                 .accessibilityLabel("File list")
                 .accessibilityHint("Select a file to enrich or drop files to add")
+
+                HStack(spacing: 12) {
+                    Button {
+                        viewModel.enqueueCurrentSelection()
+                    } label: {
+                        Label("Batch enqueue", systemImage: "text.append")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityHint("Queue the selected file or all files for batch processing")
+                    Button {
+                    Task { await viewModel.refreshJobs() }
+                    } label: {
+                        Label("Refresh Jobs", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                }
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Status")
