@@ -24,6 +24,7 @@ public final class AppViewModel: ObservableObject {
     @Published public var searchDirectors: String = ""
     @Published public var searchAirDate: String = ""
     @Published public var providerPreference: ProviderPreference = .balanced
+    @Published public var watchFolders: [URL] = []
 
     private let settingsStore: SettingsStore
     private let pipeline: MetadataPipeline
@@ -34,6 +35,8 @@ public final class AppViewModel: ObservableObject {
     private let statusStream: StatusStream
     private let batchLimiter = AsyncSemaphore(2)
     private var resolutionCache: [AmbiguityResolutionKey: MetadataDetails] = [:]
+    private var folderMonitors: [URL: FolderMonitor] = [:]
+    private var watchedKnownFiles: Set<URL> = []
     private let cacheURL: URL = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let folder = dir.appendingPathComponent("SublerPlus", isDirectory: true)
@@ -69,6 +72,8 @@ public final class AppViewModel: ObservableObject {
     private func loadSettings() async {
         let current = await settingsStore.settings
         adultEnabled = current.adultEnabled
+        let folders = current.watchFolders.map { URL(fileURLWithPath: $0) }
+        updateWatchFolders(folders)
     }
 
     public func refreshTokenBanner() {
@@ -78,36 +83,49 @@ public final class AppViewModel: ObservableObject {
 
     public var hasSelection: Bool { selectedFile != nil }
 
-    public func addFiles(_ urls: [URL]) {
-        let allowed = urls.filter { ["mp4","m4v","mov"].contains($0.pathExtension.lowercased()) }
+    @discardableResult
+    public func addFiles(_ urls: [URL]) -> Int {
+        let exts: Set<String> = ["mp4", "m4v", "mov"]
+        let allowed = urls.filter { exts.contains($0.pathExtension.lowercased()) }
         let unique = allowed.filter { !mediaFiles.contains($0) }
+        guard !unique.isEmpty else {
+            status = "No new supported files to add"
+            return 0
+        }
         mediaFiles.append(contentsOf: unique)
+        status = "Added \(unique.count) file\(unique.count == 1 ? "" : "s")"
+        return unique.count
     }
 
     public func presentFilePicker() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [.movie, .mpeg4Movie]
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsOtherFileTypes = false
+        panel.allowedContentTypes = [.mpeg4Movie, .quickTimeMovie, .movie]
         if panel.runModal() == .OK {
-            addFiles(panel.urls)
+            let added = addFiles(panel.urls)
+            if added == 0 {
+                status = "No supported media selected"
+            }
         }
     }
 
     @discardableResult
     public func handleDrop(providers: [NSItemProvider]) -> Bool {
-        var handled = false
-        for provider in providers where provider.hasItemConformingToTypeIdentifier("public.file-url") {
+        let fileProviders = providers.filter { $0.hasItemConformingToTypeIdentifier("public.file-url") }
+        guard !fileProviders.isEmpty else { return false }
+        for provider in fileProviders {
             provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
                 if let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
-                    Task { @MainActor in self.addFiles([url]) }
-                    handled = true
+                    Task { @MainActor in _ = self.addFiles([url]) }
                 } else if let url = item as? URL {
-                    Task { @MainActor in self.addFiles([url]) }
-                    handled = true
+                    Task { @MainActor in _ = self.addFiles([url]) }
                 }
             }
         }
-        return handled
+        return true
     }
 
     public func searchAdultMetadata(for query: String) {
@@ -315,6 +333,70 @@ public final class AppViewModel: ObservableObject {
         resolutionCache.removeAll()
         try? FileManager.default.removeItem(at: cacheURL)
     }
+
+    // MARK: - Folder monitoring
+
+    public func updateWatchFolders(_ urls: [URL]) {
+        let unique = Array(Set(urls.filter { $0.hasDirectoryPath }))
+        let current = Set(folderMonitors.keys)
+        let desired = Set(unique)
+
+        // Stop removed monitors
+        let toStop = current.subtracting(desired)
+        for folder in toStop {
+            folderMonitors[folder]?.stop()
+            folderMonitors.removeValue(forKey: folder)
+        }
+
+        // Start new monitors
+        for folder in desired where folderMonitors[folder] == nil {
+            let monitor = FolderMonitor()
+            do {
+                try monitor.startMonitoring(url: folder) { [weak self] in
+                    Task { @MainActor in self?.handleFolderEvent(folder) }
+                }
+                folderMonitors[folder] = monitor
+                handleFolderEvent(folder) // initial scan
+                Task { await statusStream.add("Watching folder: \(folder.lastPathComponent)") }
+            } catch {
+                status = "Failed to watch \(folder.lastPathComponent): \(error.localizedDescription)"
+            }
+        }
+        watchFolders = unique
+    }
+
+    private func handleFolderEvent(_ folder: URL) {
+        Task { [weak self] in
+            guard let self else { return }
+            let files = collectMediaFiles(at: folder)
+            await MainActor.run {
+                let newFiles = files.filter { !self.watchedKnownFiles.contains($0) }
+                guard !newFiles.isEmpty else { return }
+                newFiles.forEach { self.watchedKnownFiles.insert($0) }
+
+                let unseenInUI = newFiles.filter { !self.mediaFiles.contains($0) }
+                if !unseenInUI.isEmpty {
+                    self.mediaFiles.append(contentsOf: unseenInUI)
+                }
+                self.enqueueBatch(urls: newFiles)
+                self.status = "Queued \(newFiles.count) file\(newFiles.count == 1 ? "" : "s") from \(folder.lastPathComponent)"
+            }
+        }
+    }
+}
+
+private let supportedMediaExtensions: Set<String> = ["mp4", "m4v", "mov"]
+
+private func collectMediaFiles(at folder: URL) -> [URL] {
+    var results: [URL] = []
+    if let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil) {
+        for case let file as URL in enumerator {
+            if supportedMediaExtensions.contains(file.pathExtension.lowercased()) {
+                results.append(file)
+            }
+        }
+    }
+    return results
 }
 
 @MainActor
@@ -331,14 +413,17 @@ public final class SettingsViewModel: ObservableObject {
     @Published public var generateNFO: Bool = false
     @Published public var nfoOutputDirectory: URL?
     @Published public var tvNamingTemplate: String = "S%02dE%02d - %t"
+    @Published public var watchFolders: [URL] = []
 
     private let settingsStore: SettingsStore
     private let apiKeys: APIKeyManager
+    private let pipeline: MetadataPipeline
     private var lastRotation: Date?
 
-    public init(settingsStore: SettingsStore, apiKeys: APIKeyManager) {
+    public init(settingsStore: SettingsStore, apiKeys: APIKeyManager, pipeline: MetadataPipeline) {
         self.settingsStore = settingsStore
         self.apiKeys = apiKeys
+        self.pipeline = pipeline
         Task { await load() }
     }
 
@@ -357,6 +442,7 @@ public final class SettingsViewModel: ObservableObject {
         generateNFO = settings.generateNFO
         nfoOutputDirectory = settings.nfoOutputDirectory.flatMap { URL(fileURLWithPath: $0) }
         tvNamingTemplate = settings.tvNamingTemplate
+        watchFolders = settings.watchFolders.compactMap { URL(string: $0) ?? URL(fileURLWithPath: $0) }
     }
 
     public func save() {
@@ -370,7 +456,13 @@ public final class SettingsViewModel: ObservableObject {
                 settings.generateNFO = generateNFO
                 settings.nfoOutputDirectory = nfoOutputDirectory?.path
                 settings.tvNamingTemplate = tvNamingTemplate
+                settings.watchFolders = watchFolders.map { $0.path }
             }
+            pipeline.retainOriginals = retainOriginals
+            pipeline.outputDirectory = outputDirectory
+            pipeline.generateNFO = generateNFO
+            pipeline.nfoOutputDirectory = nfoOutputDirectory
+            pipeline.tvNamingTemplate = tvNamingTemplate
             apiKeys.saveTPDBKey(tpdbKey)
             apiKeys.saveTMDBKey(tmdbKey)
             apiKeys.saveTVDBKey(tvdbKey)
@@ -404,6 +496,23 @@ public final class SettingsViewModel: ObservableObject {
         if panel.runModal() == .OK, let url = panel.url {
             nfoOutputDirectory = url
         }
+    }
+
+    public func addWatchFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        if panel.runModal() == .OK {
+            let urls = panel.urls
+            let existing = Set(watchFolders)
+            let merged = existing.union(urls)
+            watchFolders = Array(merged)
+        }
+    }
+
+    public func removeWatchFolder(_ url: URL) {
+        watchFolders.removeAll { $0 == url }
     }
 
     public func markRotatedNow() {
