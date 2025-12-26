@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import LocalAuthentication
 
 public final class KeychainController: APIKeyStore {
     private let service = "SublerPlus"
@@ -25,13 +26,14 @@ public final class KeychainController: APIKeyStore {
     }
 
     public func get(key: String) -> String? {
+        let context = LAContext()
+        context.interactionNotAllowed = true // do not prompt UI
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: key,
             kSecReturnData: true,
-            // Avoid prompting the user; fail fast if auth is required
-            kSecUseAuthenticationUI: kSecUseAuthenticationUIFail
+            kSecUseAuthenticationContext: context
         ]
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
