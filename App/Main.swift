@@ -13,7 +13,7 @@ struct SublerPlusApp: App {
         }
         Settings {
             SettingsView(viewModel: dependencies.settingsViewModel)
-                .frame(width: 400, height: 220)
+                .frame(width: 520, height: 320)
                 .environmentObject(dependencies.appViewModel)
         }
         .commands {
@@ -22,6 +22,12 @@ struct SublerPlusApp: App {
                     dependencies.appViewModel.presentFilePicker()
                 }
                 .keyboardShortcut("n", modifiers: [.command])
+            }
+            CommandMenu("View") {
+                Button("Open Web UI in Browser") {
+                    dependencies.appViewModel.openWebUIInBrowser()
+                }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
             }
             CommandMenu("Actions") {
                 Button("Enrich Selected") {
@@ -61,9 +67,9 @@ struct AppDependencies {
             ProcessInfo.processInfo.environment["TPDB_API_KEY"] ?? ""
         let tpdbClient = TPDBClient(apiKey: tpdbKey)
         let tpdbProvider = ThePornDBProvider(client: tpdbClient)
-        let tmdbKey = ProcessInfo.processInfo.environment["TMDB_API_KEY"]
+        let tmdbKey = keychain.get(key: "tmdb") ?? ProcessInfo.processInfo.environment["TMDB_API_KEY"]
         let tmdbProvider = StandardMetadataProvider(apiKey: tmdbKey)
-        let tvdbKey = ProcessInfo.processInfo.environment["TVDB_API_KEY"]
+        let tvdbKey = keychain.get(key: "tvdb") ?? ProcessInfo.processInfo.environment["TVDB_API_KEY"]
         let tvdbProvider = TVDBProvider(apiKey: tvdbKey)
 
         let adapter = SearchProviderAdapter(
@@ -118,28 +124,58 @@ struct AppDependencies {
         let registry = ProvidersRegistry(providers: providerList)
         let artworkCache = ArtworkCacheManager()
         let pipeline = MetadataPipeline(registry: registry, mp4Handler: mp4, artwork: artworkCache)
+        Task {
+            let settingsSnapshot = await settingsStore.settings
+            pipeline.retainOriginals = settingsSnapshot.retainOriginals
+            if let outputPath = settingsSnapshot.outputDirectory {
+                pipeline.outputDirectory = URL(fileURLWithPath: outputPath)
+            }
+            pipeline.generateNFO = settingsSnapshot.generateNFO
+            if let nfoPath = settingsSnapshot.nfoOutputDirectory {
+                pipeline.nfoOutputDirectory = URL(fileURLWithPath: nfoPath)
+            }
+            pipeline.tvNamingTemplate = settingsSnapshot.tvNamingTemplate
+        }
         let statusStream = StatusStream()
         let jobQueue = JobQueue(concurrency: 2, statusStream: statusStream)
         let webToken = keychain.get(key: "webui_token") ?? ProcessInfo.processInfo.environment["WEBUI_TOKEN"]
-        let webServer = WebServer(pipeline: pipeline, registry: registry, status: statusStream, authToken: webToken)
+        // Require authentication by default for security
+        let requireAuth = true
+        let webServer = WebServer(
+            pipeline: pipeline,
+            registry: registry,
+            status: statusStream,
+            authToken: webToken,
+            requireAuth: requireAuth
+        )
         Task {
             do {
                 try webServer.start(port: 8080)
+                if webToken == nil || webToken?.isEmpty == true {
+                    await statusStream.add("SECURITY WARNING: WebUI authentication is required but no token is set. Please set WEBUI_TOKEN in Settings.")
+                } else {
+                    await statusStream.add("WebUI started with authentication enabled on http://127.0.0.1:8080")
+                }
             } catch {
                 await statusStream.add("WebUI server failed: \(error.localizedDescription)")
             }
         }
 
+        var searchProviders: [MetadataProvider] = [tpdbProvider]
+        if let tmdbProvider { searchProviders.append(tmdbProvider) }
+        if let tvdbProvider { searchProviders.append(tvdbProvider) }
+
         let appVM = AppViewModel(
             settingsStore: settingsStore,
             pipeline: pipeline,
             adultProvider: tpdbProvider,
+            searchProviders: searchProviders,
             artworkCache: artworkCache,
             apiKeys: apiKeys,
             jobQueue: jobQueue,
             statusStream: statusStream
         )
-        let settingsVM = SettingsViewModel(settingsStore: settingsStore, apiKeys: apiKeys)
+        let settingsVM = SettingsViewModel(settingsStore: settingsStore, apiKeys: apiKeys, pipeline: pipeline)
 
         return AppDependencies(appViewModel: appVM, settingsViewModel: settingsVM, webServer: webServer, statusStream: statusStream, jobQueue: jobQueue)
     }

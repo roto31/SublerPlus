@@ -34,11 +34,13 @@ struct WebContentView: NSViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             model.canGoBack = webView.canGoBack
             model.canGoForward = webView.canGoForward
+            model.currentURL = webView.url
         }
 
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
             model.canGoBack = webView.canGoBack
             model.canGoForward = webView.canGoForward
+            model.currentURL = webView.url
         }
     }
 }

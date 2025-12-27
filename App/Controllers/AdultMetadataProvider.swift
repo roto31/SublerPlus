@@ -120,7 +120,11 @@ public final class ThePornDBProvider: MetadataProvider, @unchecked Sendable {
             tags: scene.tags,
             performers: scene.performers.map { $0.name },
             coverURL: scene.poster ?? scene.background,
-            rating: scene.rating
+            rating: scene.rating,
+            source: id,
+            mediaKind: .movie,
+            sortTitle: scene.title,
+            artworkAlternates: [scene.poster, scene.background].compactMap { $0 }
         )
     }
 }

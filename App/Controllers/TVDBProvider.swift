@@ -26,7 +26,8 @@ public final class TVDBProvider: MetadataProvider, @unchecked Sendable {
                 id: String($0.tvdb_id),
                 title: $0.name,
                 score: $0.score,
-                year: year(from: $0.first_air_time)
+                year: year(from: $0.first_air_time),
+                source: id
             )
         }
     }
@@ -49,7 +50,11 @@ public final class TVDBProvider: MetadataProvider, @unchecked Sendable {
             tags: series.genres ?? [],
             performers: series.actors ?? [],
             coverURL: cover,
-            rating: series.score
+            rating: series.score,
+            source: self.id,
+            show: series.name,
+            mediaKind: .tvShow,
+            sortTitle: series.name
         )
     }
 

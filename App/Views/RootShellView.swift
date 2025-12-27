@@ -142,6 +142,14 @@ struct RootShellView: View {
             .keyboardShortcut("e", modifiers: [.command])
             .accessibilityLabel("Enrich selected file")
             .accessibilityHint("Apply metadata to the selected file")
+            Button {
+                viewModel.enqueueCurrentSelection()
+            } label: {
+                Label("Batch Enqueue", systemImage: "text.append")
+            }
+            .keyboardShortcut("b", modifiers: [.command, .shift])
+            .accessibilityLabel("Batch enqueue")
+            .accessibilityHint("Queue selected or all files for background processing")
         }
     }
 

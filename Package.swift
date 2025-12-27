@@ -26,7 +26,8 @@ let package = Package(
             exclude: [
                 "Main.swift",
                 "AppDelegate.swift",
-                "Views"
+                "Views",
+                "SublerPlus.entitlements"
             ],
             resources: []
         ),
@@ -41,7 +42,8 @@ let package = Package(
             exclude: [
                 "Controllers",
                 "Models",
-                "Resources"
+                "Resources",
+                "SublerPlus.entitlements"
             ],
             sources: [
                 "Main.swift",
@@ -51,7 +53,8 @@ let package = Package(
             resources: [
                 .process("../WebUI/Views"),
                 .process("../WebUI/Assets"),
-                .process("../Resources")
+                .process("../Resources"),
+                .process("Resources")
             ]
         ),
         .executableTarget(

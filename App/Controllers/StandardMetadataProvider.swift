@@ -28,7 +28,8 @@ public final class StandardMetadataProvider: MetadataProvider, @unchecked Sendab
                 id: String(movie.id),
                 title: movie.title,
                 score: movie.vote_average,
-                year: year(from: movie.release_date)
+                year: year(from: movie.release_date),
+                source: id
             )
         }
     }
@@ -54,7 +55,10 @@ public final class StandardMetadataProvider: MetadataProvider, @unchecked Sendab
             tags: tags,
             performers: cast,
             coverURL: cover,
-            rating: movie.vote_average
+            rating: movie.vote_average,
+            source: id,
+            mediaKind: .movie,
+            sortTitle: movie.title
         )
     }
 

@@ -47,7 +47,7 @@ public actor StatusStream {
         if events.count > capacity {
             events.removeFirst(events.count - capacity)
         }
-        AppLog.log("[Status] \(clean)", level: .minimal)
+        AppLog.info(AppLog.webui, "[Status] \(clean)")
     }
 
     public func recent(limit: Int = 50) -> [StatusEvent] {
@@ -61,14 +61,21 @@ public final class WebServer {
     private let registry: ProvidersRegistry
     private let status: StatusStream
     private let authToken: String?
+    private let requireAuth: Bool
+    private let allowedIPs: Set<String>
     private let maxBodyBytes: Int
     private let rateLimiter: TokenBucket
+    private var sessionTokens: [String: Date] = [:]
+    private let sessionExpiry: TimeInterval = 3600 // 1 hour
+    private let sessionLock = DispatchQueue(label: "com.sublerplus.webserver.sessions")
 
     public init(
         pipeline: MetadataPipeline,
         registry: ProvidersRegistry,
         status: StatusStream,
         authToken: String? = nil,
+        requireAuth: Bool = true,
+        allowedIPs: Set<String> = ["127.0.0.1", "::1"],
         maxBodyBytes: Int = 512 * 1024,
         rateLimitPerSecond: Double = 5
     ) {
@@ -76,15 +83,29 @@ public final class WebServer {
         self.registry = registry
         self.status = status
         self.authToken = authToken
+        self.requireAuth = requireAuth
+        self.allowedIPs = allowedIPs
         self.maxBodyBytes = maxBodyBytes
         self.rateLimiter = TokenBucket(maxTokens: rateLimitPerSecond, refillRate: rateLimitPerSecond)
     }
 
     public func start(port: UInt16 = 8080) throws {
-        server["/health"] = { _ in .ok(.text("ok")) }
+        // Health check endpoint (no auth required)
+        server["/health"] = { [weak self] req in
+            guard let self else { return .internalServerError }
+            guard self.checkIPAllowed(req) else { return self.errorResponse(403, "Forbidden: IP not allowed") }
+            return .ok(.text("ok"))
+        }
+        
+        // Validate token requirement
+        if requireAuth && (authToken == nil || authToken?.isEmpty == true) {
+            Task { await status.add("WARNING: WebUI requires authentication but no token is set. Set WEBUI_TOKEN in Settings.") }
+        }
+        
         let statusHandler: (HttpRequest) -> HttpResponse = { [weak self] req in
             guard let self else { return .internalServerError }
-            guard self.authorized(req) else { return self.errorResponse(401, "Unauthorized") }
+            guard self.checkIPAllowed(req) else { return self.errorResponse(403, "Forbidden: IP not allowed") }
+            guard self.authorized(req) else { return self.errorResponse(401, "Unauthorized: Token required") }
             guard self.rateLimiter.allow() else { return self.errorResponse(429, "Rate limited") }
             let recent = self.blocking { await self.status.recent(limit: 50) }
             return self.jsonResponse(recent)
@@ -93,7 +114,8 @@ public final class WebServer {
 
         let searchHandler: (HttpRequest) -> HttpResponse = { [weak self] req in
             guard let self else { return .internalServerError }
-            guard self.authorized(req) else { return self.errorResponse(401, "Unauthorized") }
+            guard self.checkIPAllowed(req) else { return self.errorResponse(403, "Forbidden: IP not allowed") }
+            guard self.authorized(req) else { return self.errorResponse(401, "Unauthorized: Token required") }
             guard self.rateLimiter.allow() else { return self.errorResponse(429, "Rate limited") }
             guard self.validateContentType(req) else { return self.errorResponse(415, "Unsupported Media Type") }
             guard self.validateBodySize(req) else { return self.errorResponse(413, "Payload too large") }
@@ -105,7 +127,8 @@ public final class WebServer {
 
         let enrichHandler: (HttpRequest) -> HttpResponse = { [weak self] req in
             guard let self else { return .internalServerError }
-            guard self.authorized(req) else { return self.errorResponse(401, "Unauthorized") }
+            guard self.checkIPAllowed(req) else { return self.errorResponse(403, "Forbidden: IP not allowed") }
+            guard self.authorized(req) else { return self.errorResponse(401, "Unauthorized: Token required") }
             guard self.rateLimiter.allow() else { return self.errorResponse(429, "Rate limited") }
             guard self.validateContentType(req) else { return self.errorResponse(415, "Unsupported Media Type") }
             guard self.validateBodySize(req) else { return self.errorResponse(413, "Payload too large") }
@@ -117,7 +140,8 @@ public final class WebServer {
 
         let filesHandler: (HttpRequest) -> HttpResponse = { [weak self] req in
             guard let self else { return .internalServerError }
-            guard self.authorized(req) else { return self.errorResponse(401, "Unauthorized") }
+            guard self.checkIPAllowed(req) else { return self.errorResponse(403, "Forbidden: IP not allowed") }
+            guard self.authorized(req) else { return self.errorResponse(401, "Unauthorized: Token required") }
             guard self.rateLimiter.allow() else { return self.errorResponse(429, "Rate limited") }
             guard self.validateContentType(req) else { return self.errorResponse(415, "Unsupported Media Type") }
             guard self.validateBodySize(req) else { return self.errorResponse(413, "Payload too large") }
@@ -126,6 +150,24 @@ public final class WebServer {
             return self.blockingResponse { try await self.handleFiles(files) }
         }
         server["/api/files"] = self.preflightWrapper(filesHandler)
+        
+        // Session token endpoint for shared machine authentication
+        server["/api/session"] = self.preflightWrapper { [weak self] req in
+            guard let self else { return .internalServerError }
+            guard self.checkIPAllowed(req) else { return self.errorResponse(403, "Forbidden: IP not allowed") }
+            guard self.authorized(req) else { return self.errorResponse(401, "Unauthorized: Token required") }
+            let sessionToken = UUID().uuidString
+            self.sessionLock.sync {
+                self.sessionTokens[sessionToken] = Date()
+            }
+            // Clean expired sessions
+            self.cleanExpiredSessions()
+            struct SessionResponse: Codable {
+                let sessionToken: String
+                let expiresIn: Int
+            }
+            return self.jsonResponse(SessionResponse(sessionToken: sessionToken, expiresIn: Int(self.sessionExpiry)))
+        }
         server["/assets/:file"] = { req in
             guard let name = req.params.first?.1, !name.contains("..") else { return .forbidden }
             let assetURL = URL(fileURLWithPath: "WebUI/Assets").appendingPathComponent(name)
@@ -157,7 +199,7 @@ public final class WebServer {
         let providers = registry.all(includeAdult: req.includeAdult)
         let hint = MetadataHint(title: req.query)
         let tasks = providers.map { provider in
-            Task { try? await provider.fetch(for: URL(fileURLWithPath: "/dev/null"), hint: hint) }
+            Task { try? await provider.fetch(for: URL(fileURLWithPath: "/dev/null"), hint: hint).withSource(provider.id) }
         }
         var results: [MetadataDetails] = []
         for task in tasks {
@@ -166,7 +208,14 @@ public final class WebServer {
             }
         }
         let mapped = results.map {
-            MetadataResult(id: $0.id, title: $0.title, score: $0.rating, year: $0.releaseDate?.yearComponent)
+            MetadataResult(
+                id: $0.id,
+                title: $0.title,
+                score: $0.rating,
+                year: $0.releaseDate?.yearComponent,
+                source: $0.source,
+                coverURL: $0.coverURL
+            )
         }
         return jsonResponse(SearchResponse(results: mapped))
     }
@@ -176,7 +225,7 @@ public final class WebServer {
         guard isSupportedMedia(fileURL) else { return errorResponse(415, "Unsupported Media Type") }
         await status.add("Enrich start: \(fileURL.lastPathComponent)")
         do {
-            let details = try await pipeline.enrich(file: fileURL, includeAdult: req.includeAdult)
+                let details = try await pipeline.enrich(file: fileURL, includeAdult: req.includeAdult, preference: .balanced)
             if let details {
                 await status.add("Enrich complete: \(details.title)")
                 return jsonResponse(EnrichResponse(details: details))
@@ -191,17 +240,21 @@ public final class WebServer {
     }
 
     private func handleFiles(_ req: FilesRequest) async throws -> HttpResponse {
-        // For drag/drop files, just echo names and kick off background searches by basename
-        let safeFiles = req.files.compactMap { path -> URL? in
-            let url = URL(fileURLWithPath: path)
-            guard isSupportedMedia(url) else { return nil }
-            return url
+        // For drag/drop files coming from the browser we only receive filenames (no paths).
+        // Validate extensions and echo back to the user; native app handles real enqueueing.
+        let titles = req.files
+            .filter { name in
+                let lower = name.lowercased()
+                return lower.hasSuffix(".mp4") || lower.hasSuffix(".m4v") || lower.hasSuffix(".mov")
+            }
+            .map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
+        if titles.isEmpty {
+            return jsonResponse(SearchResponse(results: []))
         }
-        let titles = safeFiles.map { $0.deletingPathExtension().lastPathComponent }
         for title in titles {
-            await status.add("Queued search for \(title)")
+            await status.add("Received file hint from WebUI: \(title)")
         }
-        let mapped = titles.map { MetadataResult(id: UUID().uuidString, title: $0, score: nil, year: nil) }
+        let mapped = titles.map { MetadataResult(id: UUID().uuidString, title: $0, score: nil, year: nil, source: "webui") }
         return jsonResponse(SearchResponse(results: mapped))
     }
 
@@ -210,7 +263,11 @@ public final class WebServer {
     private func jsonResponse<T: Encodable>(_ value: T) -> HttpResponse {
         do {
             let data = try JSONEncoder().encode(value)
-            return .raw(200, "OK", ["Content-Type": "application/json", "Access-Control-Allow-Origin": "http://127.0.0.1:8080"]) { writer in
+            return .raw(200, "OK", [
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "http://127.0.0.1:8080",
+                "Access-Control-Allow-Headers": "Content-Type, X-Auth-Token"
+            ]) { writer in
                 try writer.write(data)
             }
         } catch {
@@ -258,13 +315,51 @@ public final class WebServer {
         }
     }
 
+    internal func checkIPAllowed(_ req: HttpRequest) -> Bool {
+        // Swifter HttpRequest doesn't expose address directly, but since we bind to 127.0.0.1,
+        // all requests are from localhost. For additional security, we can check headers.
+        // In a shared machine scenario, IP whitelist would be configured via settings.
+        // For now, allow all requests since server is bound to localhost only.
+        return true // Server is bound to 127.0.0.1, so all requests are local
+    }
+    
     internal func authorized(_ req: HttpRequest) -> Bool {
         authorized(headers: req.headers)
     }
 
     internal func authorized(headers: [String: String]) -> Bool {
-        guard let token = authToken, !token.isEmpty else { return true }
-        return headers["x-auth-token"] == token
+        // Check session token first (for shared machine auth)
+        if let sessionToken = headers["x-session-token"], isValidSession(sessionToken) {
+            return true
+        }
+        
+        // Check main auth token
+        if requireAuth {
+            guard let token = authToken, !token.isEmpty else { return false }
+            return headers["x-auth-token"] == token
+        } else {
+            // If auth not required, allow if token matches (if provided)
+            guard let token = authToken, !token.isEmpty else { return true }
+            return headers["x-auth-token"] == token || headers["x-auth-token"] == nil
+        }
+    }
+    
+    private func isValidSession(_ token: String) -> Bool {
+        sessionLock.sync {
+            guard let expiry = sessionTokens[token] else { return false }
+            if Date().timeIntervalSince(expiry) > sessionExpiry {
+                sessionTokens.removeValue(forKey: token)
+                return false
+            }
+            return true
+        }
+    }
+    
+    private func cleanExpiredSessions() {
+        sessionLock.sync {
+            let now = Date()
+            sessionTokens = sessionTokens.filter { now.timeIntervalSince($0.value) <= sessionExpiry }
+        }
     }
 
     internal func validateContentType(_ req: HttpRequest) -> Bool {
