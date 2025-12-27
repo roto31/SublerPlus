@@ -4,10 +4,52 @@ import SublerPlusCore
 struct SettingsView: View {
     @ObservedObject var viewModel: SettingsViewModel
     @EnvironmentObject var appViewModel: AppViewModel
+    @StateObject private var dependencyManager = DependencyManager()
+    @State private var showDependencyCheck = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                // Dependency Status Section
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Dependencies")
+                            .font(.headline)
+                        Spacer()
+                        Button("Check Dependencies") {
+                            showDependencyCheck = true
+                        }
+                        .buttonStyle(.bordered)
+                        .font(.caption)
+                    }
+                    
+                    if let status = dependencyManager.dependencyStatus {
+                        ForEach(status.dependencies) { dependency in
+                            HStack {
+                                Circle()
+                                    .fill(statusColor(for: dependency.status))
+                                    .frame(width: 8, height: 8)
+                                Text(dependency.name)
+                                    .font(.caption)
+                                Spacer()
+                                if let version = dependency.installedVersion {
+                                    Text("v\(version)")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                    } else {
+                        Text("Checking dependencies...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding()
+                .background(Color(NSColor.controlBackgroundColor))
+                .cornerRadius(8)
+                
+                Divider()
                 Toggle("Enable adult metadata", isOn: $viewModel.adultEnabled)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("TPDB API Key")
@@ -55,7 +97,8 @@ struct SettingsView: View {
                         .font(.caption)
                 }
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Subtitles (OpenSubtitles via RapidAPI)")
+                    Text("Subtitles (OpenSubtitles API)")
+                        .font(.headline)
                     SecureField("OpenSubtitles API Key", text: $viewModel.openSubtitlesKey)
                         .textFieldStyle(.roundedBorder)
                     HStack {
@@ -65,9 +108,84 @@ struct SettingsView: View {
                             .frame(width: 80)
                     }
                     .font(.caption)
-                    Text("Key is stored in Keychain. Language uses ISO codes (e.g., eng, spa).")
+                    Toggle("Automatically search and download subtitles after metadata enrichment", isOn: $viewModel.autoSubtitleLookup)
+                        .font(.caption)
+                    Text("API key is stored in Keychain. Register at https://www.opensubtitles.com/ to get an API key. Language uses ISO codes (e.g., eng, spa).")
                         .font(.caption2)
                         .foregroundColor(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("iTunes & Music")
+                        .font(.headline)
+                    HStack {
+                        Text("Default country:")
+                        Picker("", selection: $viewModel.iTunesCountry) {
+                            Text("United States").tag("us")
+                            Text("United Kingdom").tag("gb")
+                            Text("Canada").tag("ca")
+                            Text("Australia").tag("au")
+                            Text("Germany").tag("de")
+                            Text("France").tag("fr")
+                            Text("Japan").tag("jp")
+                        }
+                        .frame(width: 150)
+                    }
+                    .font(.caption)
+                    Toggle("Prefer high-resolution artwork", isOn: $viewModel.preferHighResArtwork)
+                        .font(.caption)
+                    Toggle("Enable music metadata provider", isOn: $viewModel.enableMusicMetadata)
+                        .font(.caption)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Musixmatch API Key (for lyrics)")
+                            .font(.caption)
+                        SecureField("Optional - for lyrics lookup", text: $viewModel.musixmatchKey)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.caption)
+                        Text("API key is stored in Keychain. Register at https://developer.musixmatch.com/ to get an API key.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                // Advanced Features (require dependencies)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Advanced Features")
+                        .font(.headline)
+                    
+                    let ffmpegMissing = isFeatureDisabled(requiresDependency: "ffmpeg")
+                    let tesseractMissing = isFeatureDisabled(requiresDependency: "tesseract")
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Audio/Video Conversion")
+                            .font(.subheadline)
+                            .foregroundColor(ffmpegMissing ? .secondary : .primary)
+                        Text("Requires FFmpeg")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        if ffmpegMissing {
+                            Text("Install FFmpeg to enable: FLAC→AAC, MP3→AAC, advanced codec support")
+                                .font(.caption2)
+                                .foregroundColor(.red)
+                        }
+                    }
+                    .disabled(ffmpegMissing)
+                    .opacity(ffmpegMissing ? 0.5 : 1.0)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Subtitle OCR (PGS, VobSub)")
+                            .font(.subheadline)
+                            .foregroundColor(tesseractMissing ? .secondary : .primary)
+                        Text("Requires Tesseract OCR (optional)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        if tesseractMissing {
+                            Text("Install Tesseract OCR to enable bitmap subtitle conversion")
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                        }
+                    }
+                    .disabled(tesseractMissing)
+                    .opacity(tesseractMissing ? 0.5 : 1.0)
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
@@ -197,6 +315,37 @@ struct SettingsView: View {
             )
             .padding()
         }
+        .sheet(isPresented: $showDependencyCheck) {
+            DependencyCheckView {
+                Task {
+                    await dependencyManager.refreshCheck()
+                }
+            }
+        }
+        .onAppear {
+            Task {
+                await dependencyManager.refreshCheck()
+            }
+        }
+    }
+    
+    private func statusColor(for status: DependencyStatus) -> Color {
+        switch status {
+        case .installed: return .green
+        case .outdated: return .yellow
+        case .missing: return .red
+        }
+    }
+    
+    private func isFeatureDisabled(requiresDependency: String?) -> Bool {
+        guard let depId = requiresDependency,
+              let status = dependencyManager.dependencyStatus else {
+            return false
+        }
+        if let dependency = status.dependencies.first(where: { $0.id == depId }) {
+            return dependency.status == .missing
+        }
+        return false
     }
 }
 

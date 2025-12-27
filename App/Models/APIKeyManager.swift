@@ -72,5 +72,17 @@ public final class APIKeyManager {
     public func clearOpenSubtitlesKey() {
         store.remove(key: "opensubtitles")
     }
+
+    public func saveMusixmatchKey(_ key: String) {
+        store.set(key: "musixmatch", value: key)
+    }
+
+    public func loadMusixmatchKey() -> String? {
+        store.get(key: "musixmatch")
+    }
+
+    public func clearMusixmatchKey() {
+        store.remove(key: "musixmatch")
+    }
 }
 

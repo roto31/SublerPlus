@@ -3,13 +3,28 @@ import SublerPlusCore
 
 @main
 struct SublerPlusApp: App {
+    @StateObject private var dependencyManager = DependencyManager()
     private let dependencies = AppDependencies.build()
+    
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
         WindowGroup {
             RootShellView(viewModel: dependencies.appViewModel, settingsViewModel: dependencies.settingsViewModel, statusStream: dependencies.statusStream)
                 .frame(minWidth: 840, minHeight: 540)
                 .environmentObject(dependencies.appViewModel)
+                .sheet(isPresented: $dependencyManager.showDependencyCheck) {
+                    DependencyCheckView {
+                        dependencyManager.markAsChecked()
+                    }
+                }
+                .task {
+                    dependencyManager.checkIfNeeded()
+                    // Initialize AppleScript support after dependencies are ready
+                    appDelegate.initialize(jobQueue: dependencies.jobQueue, statusStream: dependencies.statusStream)
+                    AppleScriptBridge.shared.initialize(jobQueue: dependencies.jobQueue, statusStream: dependencies.statusStream)
+                    AppleScriptBridge.shared.registerScriptCommands()
+                }
         }
         Settings {
             SettingsView(viewModel: dependencies.settingsViewModel)
@@ -59,6 +74,11 @@ struct AppDependencies {
 
     @MainActor
     static func build() -> AppDependencies {
+        return buildSync()
+    }
+    
+    @MainActor
+    static func buildSync() -> AppDependencies {
         let keychain = KeychainController()
         let apiKeys = APIKeyManager(store: keychain)
         let settingsStore = SettingsStore(keychain: keychain)
@@ -123,7 +143,16 @@ struct AppDependencies {
 
         let registry = ProvidersRegistry(providers: providerList)
         let artworkCache = ArtworkCacheManager()
-        let pipeline = MetadataPipeline(registry: registry, mp4Handler: mp4, artwork: artworkCache)
+        
+        // Create SubtitleManager for automatic subtitle lookup
+        let openSubtitlesKey = keychain.get(key: "opensubtitles") ?? ProcessInfo.processInfo.environment["OPENSUBTITLES_API_KEY"]
+        // Use default language "eng" initially, will be updated from settings
+        let subtitleManager = SubtitleManager(
+            subtitles: OpenSubtitlesProvider(apiKey: openSubtitlesKey),
+            language: "eng"
+        )
+        
+        let pipeline = MetadataPipeline(registry: registry, mp4Handler: mp4, artwork: artworkCache, subtitleManager: subtitleManager)
         Task {
             let settingsSnapshot = await settingsStore.settings
             pipeline.retainOriginals = settingsSnapshot.retainOriginals
@@ -135,6 +164,7 @@ struct AppDependencies {
                 pipeline.nfoOutputDirectory = URL(fileURLWithPath: nfoPath)
             }
             pipeline.tvNamingTemplate = settingsSnapshot.tvNamingTemplate
+            pipeline.autoSubtitleLookup = settingsSnapshot.autoSubtitleLookup
         }
         let statusStream = StatusStream()
         let jobQueue = JobQueue(concurrency: 2, statusStream: statusStream)

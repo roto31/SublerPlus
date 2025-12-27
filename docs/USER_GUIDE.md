@@ -23,6 +23,19 @@ Uses same providers and pipeline; ambiguous items are deferred for later resolut
 ## Settings
 - Toggle adult lookups, adjust TPDB confidence (if exposed), manage API keys (Keychain).
 - Clear ambiguity cache if needed (Settings control).
+- Dependency checking: View status of external dependencies (FFmpeg, Tesseract) with visual indicators.
+
+## Muxing & Presets
+- **Presets**: Use built-in presets (Passthrough, Apple TV, iPhone, iPad, Audio Only, Audiobook) or create custom presets
+- **Preset Import/Export**: Export presets to JSON/PLIST files or import from files
+- **Track Selection**: Select specific tracks for muxing with conversion options
+- **Audio Conversion**: Convert audio tracks to AAC or AC3 with configurable bitrate and mixdown
+- **Subtitle Conversion**: Convert subtitles to TX3G format with styling options
+
+## Queue Operations
+- **Queue Statistics**: View real-time statistics including total processed, success/failure counts, average time, and estimated remaining
+- **Queue Management**: Reorder items, edit job settings, bulk modify, duplicate jobs, filter by status/URL, and sort queue
+- **Batch Actions**: Configure preferred audio/subtitle languages, fix fallbacks, set languages, clear track names, organize groups
 
 ## Folder Monitoring
 - Add a folder (if configured) to auto-enqueue new media into the JobQueue with bounded concurrency and retries.

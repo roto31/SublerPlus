@@ -4,53 +4,80 @@ import SublerPlusCore
 struct AdvancedSearchView: View {
     @ObservedObject var viewModel: AppViewModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isDraggingOver = false
 
     var body: some View {
         Group {
             if #available(macOS 13.0, *) {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Advanced Search")
-                        .font(.title2)
-                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-                        GridRow {
-                            Text("Title")
-                            TextField("Title or keywords", text: $viewModel.searchTitle)
-                                .textFieldStyle(.roundedBorder)
-                        }
-                        GridRow {
-                            Text("Studio/Network")
-                            TextField("Studio or network", text: $viewModel.searchStudio)
-                                .textFieldStyle(.roundedBorder)
-                        }
-                        GridRow {
-                            Text("Year")
+                HSplitView {
+                    // Main content area
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Advanced Search")
+                            .font(.title2)
+                        
+                        // Drag indicator when no file is loaded
+                        if viewModel.droppedFile == nil {
                             HStack {
-                                TextField("From", text: $viewModel.searchYearFrom)
+                                Image(systemName: "arrow.down.doc")
+                                    .foregroundColor(.secondary)
+                                Text("Drag and drop a media file here to load its metadata")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(Color.secondary.opacity(0.1))
+                            .cornerRadius(8)
+                        }
+                        
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                            GridRow {
+                                Text("Title")
+                                TextField("Title or keywords", text: $viewModel.searchTitle)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 80)
-                                Text("to")
-                                TextField("To", text: $viewModel.searchYearTo)
+                            }
+                            GridRow {
+                                Text("Studio/Network")
+                                TextField("Studio or network", text: $viewModel.searchStudio)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 80)
+                            }
+                            GridRow {
+                                Text("Year")
+                                HStack {
+                                    TextField("From", text: $viewModel.searchYearFrom)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 80)
+                                    Text("to")
+                                    TextField("To", text: $viewModel.searchYearTo)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 80)
+                                }
+                            }
+                            GridRow {
+                                Text("Actors/Actresses")
+                                TextField("Comma-separated", text: $viewModel.searchActors)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+                            GridRow {
+                                Text("Directors/Producers")
+                                TextField("Comma-separated", text: $viewModel.searchDirectors)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+                            GridRow {
+                                Text("Rough Air Date (TV)")
+                                TextField("YYYY-MM-DD", text: $viewModel.searchAirDate)
+                                    .textFieldStyle(.roundedBorder)
                             }
                         }
-                        GridRow {
-                            Text("Actors/Actresses")
-                            TextField("Comma-separated", text: $viewModel.searchActors)
-                                .textFieldStyle(.roundedBorder)
-                        }
-                        GridRow {
-                            Text("Directors/Producers")
-                            TextField("Comma-separated", text: $viewModel.searchDirectors)
-                                .textFieldStyle(.roundedBorder)
-                        }
-                        GridRow {
-                            Text("Rough Air Date (TV)")
-                            TextField("YYYY-MM-DD", text: $viewModel.searchAirDate)
-                                .textFieldStyle(.roundedBorder)
-                        }
+                        advancedFooter
                     }
-                    advancedFooter
+                    .frame(minWidth: 400)
+                    
+                    // Sidebar for file metadata
+                    if viewModel.droppedFile != nil {
+                        fileMetadataSidebar
+                            .frame(minWidth: 250, maxWidth: 350)
+                    }
                 }
             } else {
                 Form {
@@ -73,6 +100,241 @@ struct AdvancedSearchView: View {
         }
         .padding()
         .animation(reduceMotion ? nil : .default, value: viewModel.searchResults.count)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isDraggingOver ? Color.accentColor : Color.clear, lineWidth: 2)
+                .padding(4)
+        )
+        .onDrop(of: [.movie, .mpeg4Movie, .quickTimeMovie, .audio, .mpeg4Audio], isTargeted: $isDraggingOver) { providers in
+            handleDrop(providers: providers)
+        }
+        .confirmationDialog(
+            "Apply Metadata",
+            isPresented: $viewModel.showApplyConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Apply") {
+                if let file = viewModel.droppedFile {
+                    Task {
+                        await viewModel.applySelectedMetadata(to: file)
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let file = viewModel.droppedFile, let details = viewModel.selectedResultDetails {
+                Text("Apply metadata to \(file.lastPathComponent)?\n\nTitle: \(details.title)\n\(details.studio.map { "Studio: \($0)\n" } ?? "")\(details.releaseDate.map { "Year: \(Calendar.current.component(.year, from: $0))\n" } ?? "")")
+            } else {
+                Text("Apply metadata to the selected file?")
+            }
+        }
+    }
+    
+    @available(macOS 13.0, *)
+    private var fileMetadataSidebar: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("File Metadata")
+                .font(.title3)
+                .fontWeight(.semibold)
+            
+            Divider()
+            
+            if let file = viewModel.droppedFile {
+                // File name
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("File:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(file.lastPathComponent)
+                        .font(.subheadline)
+                        .lineLimit(2)
+                }
+                
+                Divider()
+                
+                // Artwork
+                if let artworkURL = viewModel.droppedFileArtworkURL {
+                    AsyncImage(url: artworkURL) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                        case .failure:
+                            Image(systemName: "photo")
+                                .foregroundColor(.secondary)
+                        @unknown default:
+                            EmptyView()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: 200)
+                    .cornerRadius(8)
+                }
+                
+                // Metadata fields
+                if let metadata = viewModel.droppedFileMetadata {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if !metadata.title.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Title:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(metadata.title)
+                                    .font(.subheadline)
+                            }
+                        }
+                        
+                        if let studio = metadata.studio {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Studio:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(studio)
+                                    .font(.subheadline)
+                            }
+                        }
+                        
+                        if let releaseDate = metadata.releaseDate {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Year:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(String(Calendar.current.component(.year, from: releaseDate)))
+                                    .font(.subheadline)
+                            }
+                        }
+                        
+                        if !metadata.performers.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Performers:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(metadata.performers.joined(separator: ", "))
+                                    .font(.subheadline)
+                                    .lineLimit(3)
+                            }
+                        }
+                        
+                        if let synopsis = metadata.synopsis, !synopsis.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Synopsis:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                ScrollView {
+                                    Text(synopsis)
+                                        .font(.subheadline)
+                                }
+                                .frame(maxHeight: 100)
+                            }
+                        }
+                        
+                        if let show = metadata.show {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("TV Show:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(show)
+                                    .font(.subheadline)
+                            }
+                            
+                            if let season = metadata.seasonNumber {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Season:")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Text(String(season))
+                                        .font(.subheadline)
+                                }
+                            }
+                            
+                            if let episode = metadata.episodeNumber {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Episode:")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Text(String(episode))
+                                        .font(.subheadline)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            Spacer()
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.05))
+    }
+    
+    @ViewBuilder
+    private var artworkPickerView: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Button(action: {
+                    viewModel.showArtworkPicker = false
+                }) {
+                    HStack {
+                        Image(systemName: "chevron.left")
+                        Text("Back to Results")
+                    }
+                }
+                .buttonStyle(.bordered)
+                
+                Spacer()
+                
+                Text("Select Artwork")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                
+                Spacer()
+            }
+            
+            Divider()
+            
+            ArtworkBrowserView { artworkURL in
+                viewModel.pendingArtworkURL = artworkURL
+                if let file = viewModel.droppedFile {
+                    Task {
+                        await viewModel.applyArtwork(to: file, artworkURL: artworkURL)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .padding()
+    }
+    
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        
+        if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+            provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, error in
+                guard let data = item as? Data,
+                      let url = URL(dataRepresentation: data, relativeTo: nil) else {
+                    return
+                }
+                
+                // Validate file type
+                let ext = url.pathExtension.lowercased()
+                guard ["mp4", "m4v", "m4a", "mov", "mkv"].contains(ext) else {
+                    Task { @MainActor in
+                        viewModel.status = "Unsupported file type: \(ext)"
+                    }
+                    return
+                }
+                
+                Task {
+                    await viewModel.loadMetadataFromFile(url)
+                }
+            }
+            return true
+        }
+        
+        return false
     }
 
     private var advancedFooter: some View {
@@ -93,23 +355,183 @@ struct AdvancedSearchView: View {
 
             Divider()
 
-            List(viewModel.searchResults, id: \.id) { result in
-                VStack(alignment: .leading) {
-                    Text(result.title)
-                        .font(.headline)
-                    if let year = result.year {
-                        Text("Year: \(year)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+            if viewModel.showArtworkPicker {
+                // Show artwork picker instead of results
+                artworkPickerView
+            } else if viewModel.searchResults.isEmpty {
+                Text("No results yet. Click Search to find matches.")
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding()
+            } else {
+                HStack(alignment: .top, spacing: 16) {
+                    // Results list
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Search Results")
+                            .font(.headline)
+                        List(selection: $viewModel.selectedSearchResult) {
+                            ForEach(viewModel.searchResults, id: \.id) { result in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(result.title)
+                                        .font(.headline)
+                                    HStack {
+                                        if let year = result.year {
+                                            Text("Year: \(year)")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        if let score = result.score {
+                                            Text("Score: \(String(format: "%.2f", score))")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                    if let source = result.source {
+                                        Text("Source: \(source)")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                .tag(result)
+                            }
+                        }
+                        .frame(minHeight: 200)
                     }
-                    if let score = result.score {
-                        Text(String(format: "Score: %.2f", score))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                    .frame(width: 300)
+
+                    // Result details view
+                    if let selectedResult = viewModel.selectedSearchResult {
+                        resultDetailsView(for: selectedResult)
+                            .frame(minWidth: 300)
+                            .onAppear {
+                                // Automatically fetch details when result is selected
+                                if viewModel.selectedResultDetails == nil {
+                                    Task {
+                                        await viewModel.fetchResultDetails(for: selectedResult)
+                                    }
+                                }
+                            }
                     }
                 }
             }
         }
+    }
+    
+    @ViewBuilder
+    private func resultDetailsView(for result: MetadataResult) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Result Details")
+                .font(.headline)
+            
+            Divider()
+            
+            if let details = viewModel.selectedResultDetails {
+                // Show full metadata details
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(details.title)
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                        
+                        if let year = details.releaseDate.flatMap({ Calendar.current.component(.year, from: $0) }) {
+                            Text("Year: \(year)")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        if let studio = details.studio {
+                            Text("Studio: \(studio)")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        if let rating = details.rating {
+                            Text("Rating: \(String(format: "%.1f", rating))")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        if let synopsis = details.synopsis, !synopsis.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Synopsis:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(synopsis)
+                                    .font(.subheadline)
+                            }
+                        }
+                        
+                        if !details.performers.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Performers:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(details.performers.joined(separator: ", "))
+                                    .font(.subheadline)
+                            }
+                        }
+                        
+                        if let show = details.show {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("TV Show: \(show)")
+                                    .font(.subheadline)
+                                if let season = details.seasonNumber {
+                                    Text("Season: \(season)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                if let episode = details.episodeNumber {
+                                    Text("Episode: \(episode)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                        
+                        if let coverURL = details.coverURL ?? result.coverURL {
+                            AsyncImage(url: coverURL) { phase in
+                                switch phase {
+                                case .empty:
+                                    ProgressView()
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                case .failure:
+                                    Image(systemName: "photo")
+                                        .foregroundColor(.secondary)
+                                @unknown default:
+                                    EmptyView()
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: 200)
+                            .cornerRadius(8)
+                        }
+                    }
+                }
+                
+                // Apply button
+                if viewModel.droppedFile != nil {
+                    Button("Apply Metadata") {
+                        viewModel.showApplyConfirmation = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            } else {
+                // Loading state
+                VStack {
+                    ProgressView()
+                    Text("Loading details...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.05))
+        .cornerRadius(8)
     }
 }
 

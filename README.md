@@ -6,15 +6,19 @@ SwiftUI macOS app (12+) for MP4 metadata enrichment. Includes adult + standard p
 - MP4 tagging: AVFoundation passthrough + Swift AtomCodec (moov/udta/meta/ilst) for title/artist/genre/date/cover.
 - Providers: ThePornDB (adult), TMDB, TVDB, Subler local. Retry/backoff and circuit breakers per provider.
 - Disambiguation: modal picker; remembers choices (filename + studio + year) for batch auto-resolve.
-- Jobs: actor-backed queue with bounded concurrency; drag/drop and batch ingest; activity feed.
+- Jobs: actor-backed queue with bounded concurrency; drag/drop and batch ingest; activity feed; statistics tracking.
 - WebUI: Swifter on 127.0.0.1, optional token auth (`WEBUI_TOKEN`), CORS locked, size/type checks, rate limiting.
 - CLI: same pipeline as the app for headless runs.
 - Accessibility/HIG: labeled controls, keyboard shortcuts, reduce-motion/transparency aware.
 - Logging: os.Logger; secret scrubbing; `LOG_LEVEL=minimal` to reduce PII.
+- Codec Support: Comprehensive video/audio/subtitle codec support via AVFoundation and FFmpeg.
+- Muxing: Full muxing/remuxing with audio conversion, subtitle embedding, HDR/Dolby Vision preservation.
+- Presets: Configurable muxing presets with import/export functionality.
 
 ## Requirements
 - macOS 12+; Swift 5.9+.
 - API keys: Stored in Keychain via Settings, or provided via env vars.
+- Optional dependencies: FFmpeg (for advanced codec support and conversion), Tesseract (for bitmap subtitle OCR).
 
 ## Setup
 ```bash
@@ -44,9 +48,11 @@ swift run sublerplus-cli /path/to/file.mp4
 
 ## Documentation
 - `docs/USER_GUIDE.md` — usage and UI
+- `docs/HOW_TO_GUIDE.md` — comprehensive step-by-step guide with troubleshooting
 - `docs/TECHNICAL.md` — architecture
 - `docs/SECURITY.md` — threat model and hardening
 - `docs/TROUBLESHOOTING.md` — common issues
+- `CHANGELOG.md` — version history and changes
 
 ## Contributing
 - Keep SwiftPM build/tests green: `swift test`.
