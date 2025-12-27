@@ -4,7 +4,7 @@ SwiftUI macOS app (12+) for MP4 metadata enrichment. Includes adult + standard p
 
 ## Highlights
 - MP4 tagging: AVFoundation passthrough + Swift AtomCodec (moov/udta/meta/ilst) for title/artist/genre/date/cover.
-- Providers: ThePornDB (adult), TMDB, TVDB, Subler local. Retry/backoff and circuit breakers per provider.
+- Providers: TMDB, TVDB, Subler local. Retry/backoff and circuit breakers per provider.
 - Disambiguation: modal picker; remembers choices (filename + studio + year) for batch auto-resolve.
 - Jobs: actor-backed queue with bounded concurrency; drag/drop and batch ingest; activity feed.
 - WebUI: Swifter on 127.0.0.1, optional token auth (`WEBUI_TOKEN`), CORS locked, size/type checks, rate limiting.
