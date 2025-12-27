@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AVFoundation
 
 @MainActor
 public final class AppViewModel: ObservableObject {
@@ -25,10 +26,12 @@ public final class AppViewModel: ObservableObject {
     @Published public var searchAirDate: String = ""
     @Published public var providerPreference: ProviderPreference = .balanced
     @Published public var watchFolders: [URL] = []
+    @Published public var defaultSubtitleLanguage: String = "eng"
 
     private let settingsStore: SettingsStore
     private let pipeline: MetadataPipeline
     private let adultProvider: MetadataProvider
+    private let searchProviders: [MetadataProvider]
     private let artworkCache: ArtworkCacheManager
     private let apiKeys: APIKeyManager
     private let jobQueue: JobQueue
@@ -37,6 +40,9 @@ public final class AppViewModel: ObservableObject {
     private var resolutionCache: [AmbiguityResolutionKey: MetadataDetails] = [:]
     private var folderMonitors: [URL: FolderMonitor] = [:]
     private var watchedKnownFiles: Set<URL> = []
+    private var artworkOverrides: [URL: URL] = [:]
+    private var fileTracks: [URL: [MediaTrack]] = [:]
+    private var fileChapters: [URL: [Chapter]] = [:]
     private let cacheURL: URL = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let folder = dir.appendingPathComponent("SublerPlus", isDirectory: true)
@@ -48,6 +54,7 @@ public final class AppViewModel: ObservableObject {
         settingsStore: SettingsStore,
         pipeline: MetadataPipeline,
         adultProvider: MetadataProvider,
+        searchProviders: [MetadataProvider],
         artworkCache: ArtworkCacheManager,
         apiKeys: APIKeyManager,
         jobQueue: JobQueue,
@@ -56,6 +63,7 @@ public final class AppViewModel: ObservableObject {
         self.settingsStore = settingsStore
         self.pipeline = pipeline
         self.adultProvider = adultProvider
+        self.searchProviders = searchProviders
         self.artworkCache = artworkCache
         self.apiKeys = apiKeys
         self.jobQueue = jobQueue
@@ -74,11 +82,15 @@ public final class AppViewModel: ObservableObject {
         adultEnabled = current.adultEnabled
         let folders = current.watchFolders.map { URL(fileURLWithPath: $0) }
         updateWatchFolders(folders)
+        defaultSubtitleLanguage = current.defaultSubtitleLanguage
     }
 
     public func refreshTokenBanner() {
         let token = apiKeys.loadWebToken() ?? ProcessInfo.processInfo.environment["WEBUI_TOKEN"]
         tokenMissing = token?.isEmpty ?? true
+        if tokenMissing {
+            status = "SECURITY: WebUI token is required. Set it in Settings."
+        }
     }
 
     public var hasSelection: Bool { selectedFile != nil }
@@ -93,6 +105,17 @@ public final class AppViewModel: ObservableObject {
             return 0
         }
         mediaFiles.append(contentsOf: unique)
+        Task {
+            for url in unique {
+                async let tracks = inspectTracks(url: url)
+                async let chapters = inspectChapters(url: url)
+                let (t, c) = await (tracks, chapters)
+                await MainActor.run {
+                    self.fileTracks[url] = t
+                    self.fileChapters[url] = c
+                }
+            }
+        }
         status = "Added \(unique.count) file\(unique.count == 1 ? "" : "s")"
         return unique.count
     }
@@ -128,24 +151,9 @@ public final class AppViewModel: ObservableObject {
         return true
     }
 
-    public func searchAdultMetadata(for query: String) {
-        searchQuery = query
-        Task {
-            do {
-                let results = try await adultProvider.search(query: query)
-                try Task.checkCancellation()
-                self.searchResults = results
-            } catch is CancellationError {
-                // Ignore
-            } catch {
-                status = "Search failed: \(error.localizedDescription)"
-            }
-        }
-    }
-
     public func triggerSearch() {
         guard !searchQuery.isEmpty else { return }
-        searchAdultMetadata(for: searchQuery)
+        Task { await runSearch(query: searchQuery, yearHint: nil) }
     }
 
     public func runAdvancedSearch() {
@@ -163,7 +171,8 @@ public final class AppViewModel: ObservableObject {
         }
         let query = components.joined(separator: " ")
         guard !query.isEmpty else { return }
-        searchAdultMetadata(for: query)
+        let yearHint = Int(searchYearFrom) ?? Int(searchYearTo)
+        Task { await runSearch(query: query, yearHint: yearHint) }
     }
 
     public func enrich(file url: URL) {
@@ -179,11 +188,13 @@ public final class AppViewModel: ObservableObject {
                         self?.pendingAmbiguity = match
                         self?.ambiguityQueue.append(match)
                         self?.showAmbiguitySheet = true
+                        self?.status = "Ambiguous match for \(url.lastPathComponent); pick a result"
                     }
                     return nil // defer resolution
                 })
                 if let details = details {
-                    let cover = await artworkCache.fetchArtwork(from: details.coverURL)
+                    let coverURL = artworkOverrides[url] ?? details.coverURL
+                    let cover = await artworkCache.fetchArtwork(from: coverURL)
                     _ = mp4TagUpdates(from: details, coverData: cover)
                     status = "Updated metadata for \(details.title)"
                     await MainActor.run { self.fileMetadata[url] = details }
@@ -202,12 +213,34 @@ public final class AppViewModel: ObservableObject {
         }
     }
 
+    // Batch via JobQueue
+    public func enqueueCurrentSelection() {
+        let targets: [URL]
+        if let selectedFile {
+            targets = [selectedFile]
+        } else {
+            targets = mediaFiles
+        }
+        guard !targets.isEmpty else {
+            status = "No files to enqueue"
+            return
+        }
+        enqueueBatch(urls: targets)
+        status = "Queued \(targets.count) file\(targets.count == 1 ? "" : "s") for batch"
+    }
+
     public func openSettings() {
         // placeholder for future deep links
     }
 
     public func openHelp() {
         if let url = URL(string: "https://github.com/roto31/SublerPlus/wiki") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    public func openWebUIInBrowser() {
+        if let url = URL(string: "http://127.0.0.1:8080/") {
             NSWorkspace.shared.open(url)
         }
     }
@@ -246,11 +279,13 @@ public final class AppViewModel: ObservableObject {
                                 self?.ambiguityQueue.append(match)
                                 self?.pendingAmbiguity = match
                                 self?.showAmbiguitySheet = true
+                                self?.status = "Ambiguous match for \(job.url.lastPathComponent); pick a result"
                             }
                             return nil // defer
                         })
                         if let details = details {
-                            let cover = await self.artworkCache.fetchArtwork(from: details.coverURL)
+                            let coverURL = await MainActor.run { self.artworkOverrides[job.url] ?? details.coverURL }
+                            let cover = await self.artworkCache.fetchArtwork(from: coverURL)
                             _ = mp4TagUpdates(from: details, coverData: cover)
                             await self.jobQueue.update(jobID: job.id, status: .succeeded, message: details.title)
                             await MainActor.run { self.fileMetadata[job.url] = details }
@@ -286,6 +321,21 @@ public final class AppViewModel: ObservableObject {
         jobs.last { $0.url == url }
     }
 
+    public func tracks(for url: URL) -> [MediaTrack]? {
+        fileTracks[url]
+    }
+
+    public func chapters(for url: URL) -> [Chapter]? {
+        fileChapters[url]
+    }
+
+    // Subtitle candidates (last fetched per file)
+    private var subtitleCandidates: [URL: [SubtitleCandidate]] = [:]
+
+    public func subtitles(for url: URL) -> [SubtitleCandidate]? {
+        subtitleCandidates[url]
+    }
+
     public func appendActivity(_ message: String) {
         activityLines.append(message)
     }
@@ -303,6 +353,10 @@ public final class AppViewModel: ObservableObject {
         let title = file.deletingPathExtension().lastPathComponent.lowercased()
         let year = choice.releaseDate.flatMap { Calendar.current.dateComponents([.year], from: $0).year }
         let studio = choice.studio?.lowercased()
+        let show = choice.show?.lowercased()
+        if let show {
+            return AmbiguityResolutionKey(title: show, year: choice.seasonNumber, studio: studio)
+        }
         return AmbiguityResolutionKey(title: title, year: year, studio: studio)
     }
 
@@ -332,6 +386,327 @@ public final class AppViewModel: ObservableObject {
     public func clearResolutionCache() {
         resolutionCache.removeAll()
         try? FileManager.default.removeItem(at: cacheURL)
+    }
+
+    public func clearArtworkCache() {
+        Task {
+            await artworkCache.clear()
+            await MainActor.run { self.status = "Artwork cache cleared" }
+        }
+    }
+
+    public func refreshArtwork(for url: URL) {
+        Task {
+            guard let details = fileMetadata[url] else { return }
+            await artworkCache.clear()
+            let coverURL = artworkOverrides[url] ?? details.coverURL
+            _ = await artworkCache.fetchArtwork(from: coverURL)
+            await MainActor.run { self.status = "Artwork refreshed for \(url.lastPathComponent)" }
+        }
+    }
+
+    public func applyArtwork(for url: URL, to artworkURL: URL) {
+        Task {
+            guard let details = fileMetadata[url] else { return }
+            artworkOverrides[url] = artworkURL
+            let updated = details.withCover(artworkURL)
+            do {
+                try await pipeline.writeResolved(details: updated, to: url)
+                let cover = await artworkCache.fetchArtwork(from: artworkURL)
+                _ = mp4TagUpdates(from: updated, coverData: cover)
+                await MainActor.run {
+                    self.fileMetadata[url] = updated
+                    self.status = "Applied artwork for \(url.lastPathComponent)"
+                }
+            } catch {
+                await MainActor.run { self.status = "Artwork apply failed: \(error.localizedDescription)" }
+            }
+        }
+    }
+
+    // MARK: - Track inspection
+    
+    private func fourCCToString(_ code: FourCharCode) -> String {
+        var result = ""
+        let bytes = [
+            UInt8((code >> 24) & 0xFF),
+            UInt8((code >> 16) & 0xFF),
+            UInt8((code >> 8) & 0xFF),
+            UInt8(code & 0xFF)
+        ]
+        for byte in bytes {
+            if byte >= 32 && byte <= 126 {
+                result.append(Character(UnicodeScalar(byte)))
+            } else {
+                result.append("?")
+            }
+        }
+        return result
+    }
+
+    private func inspectTracks(url: URL) async -> [MediaTrack] {
+        do {
+            let asset = AVURLAsset(url: url)
+            _ = try await asset.load(.duration) // warm load
+            var collected: [MediaTrack] = []
+
+            for track in try await asset.load(.tracks) {
+                let kind = mapKind(track.mediaType)
+                let codec = track.formatDescriptions
+                    .map { $0 as! CMFormatDescription }
+                    .map { fourCCToString(CMFormatDescriptionGetMediaSubType($0)) }
+                    .first
+                let lang = try? await track.load(.languageCode)
+                let bitrate = Int(track.estimatedDataRate)
+                let isDefault = track.isEnabled
+                let isForced = false
+                var resolution: String?
+                var hdr = false
+                if kind == .video {
+                    let dims = try? await track.load(.naturalSize)
+                    if let dims {
+                        resolution = "\(Int(dims.width))x\(Int(dims.height))"
+                    }
+                    // Check for HDR by examining format descriptions
+                    if let desc = track.formatDescriptions.first {
+                        let formatDesc = desc as! CMFormatDescription
+                        let fourCC = CMFormatDescriptionGetMediaSubType(formatDesc)
+                        // Check for HDR codecs: hev1, hvc1 (HEVC), or av01 (AV1)
+                        let codecString = fourCCToString(fourCC)
+                        if codecString == "hev1" || codecString == "hvc1" || codecString == "av01" {
+                            // Additional HDR check: look for HDR metadata in format extensions
+                            if let extensions = CMFormatDescriptionGetExtensions(formatDesc) as? [String: Any] {
+                                // Check for HDR-related keys
+                                if extensions["CVImageBufferTransferFunction"] != nil ||
+                                   extensions["CVImageBufferColorPrimaries"] != nil {
+                                    hdr = true
+                                }
+                            }
+                        }
+                    }
+                }
+                collected.append(
+                    MediaTrack(
+                        kind: kind,
+                        codec: codec,
+                        language: lang,
+                        bitrate: bitrate,
+                        isDefault: isDefault,
+                        isForced: isForced,
+                        resolution: resolution,
+                        hdr: hdr
+                    )
+                )
+            }
+            return collected
+        } catch {
+            await statusStream.add("Track inspection failed: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    private func mapKind(_ mediaType: AVMediaType) -> MediaTrack.Kind {
+        switch mediaType {
+        case .video: return .video
+        case .audio: return .audio
+        case .subtitle, .text, .closedCaption: return .subtitle
+        case .timecode: return .timecode
+        case .metadata: return .metadata
+        default: return .unknown
+        }
+    }
+
+    // MARK: - Chapters
+
+    private func inspectChapters(url: URL) async -> [Chapter] {
+        do {
+            let asset = AVURLAsset(url: url)
+            let groups = try await asset.loadChapterMetadataGroups(withTitleLocale: Locale.current)
+            var collected: [Chapter] = []
+            for group in groups {
+                let titleItem = AVMetadataItem.metadataItems(from: group.items, filteredByIdentifier: .commonIdentifierTitle).first
+                let title = titleItem?.stringValue ?? "Chapter"
+                let start = CMTimeGetSeconds(group.timeRange.start)
+                collected.append(Chapter(title: title, startSeconds: start))
+            }
+            return collected.sorted { $0.startSeconds < $1.startSeconds }
+        } catch {
+            await statusStream.add("Chapter inspection failed: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    public func importChapters(for url: URL) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let path = panel.url {
+            do {
+                let content = try String(contentsOf: path)
+                let parsed = parseChapters(text: content)
+                fileChapters[url] = parsed
+                status = "Imported \(parsed.count) chapters"
+            } catch {
+                status = "Chapter import failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    public func exportChapters(for url: URL) {
+        guard let chapters = fileChapters[url], !chapters.isEmpty else {
+            status = "No chapters to export"
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.nameFieldStringValue = url.deletingPathExtension().lastPathComponent + ".chapters.txt"
+        if panel.runModal() == .OK, let dest = panel.url {
+            let lines = chapters
+                .sorted { $0.startSeconds < $1.startSeconds }
+                .map { chapter in "\(formatTime(chapter.startSeconds)) \(chapter.title)" }
+            do {
+                try lines.joined(separator: "\n").write(to: dest, atomically: true, encoding: .utf8)
+                status = "Exported chapters"
+            } catch {
+                status = "Chapter export failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func parseChapters(text: String) -> [Chapter] {
+        var chapters: [Chapter] = []
+        let lines = text.split(whereSeparator: \.isNewline)
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.hour, .minute, .second]
+        formatter.zeroFormattingBehavior = [.pad]
+
+        for line in lines {
+            let parts = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+            guard parts.count >= 1 else { continue }
+            let timeString = String(parts[0])
+            let title = parts.count == 2 ? String(parts[1]) : "Chapter \(chapters.count + 1)"
+            if let seconds = parseTime(timeString) {
+                chapters.append(Chapter(title: title, startSeconds: seconds))
+            }
+        }
+        return chapters
+    }
+
+    private func parseTime(_ str: String) -> Double? {
+        let parts = str.split(separator: ":").reversed()
+        var total: Double = 0
+        for (idx, part) in parts.enumerated() {
+            guard let val = Double(part) else { return nil }
+            total += val * pow(60, Double(idx))
+        }
+        return total
+    }
+
+    private func formatTime(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 {
+            return String(format: "%02d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%02d:%02d", m, s)
+    }
+
+    // MARK: - Subtitles (OpenSubtitles)
+    private var subtitleManager: SubtitleManager? {
+        let key = apiKeys.loadOpenSubtitlesKey()
+        return SubtitleManager(subtitles: OpenSubtitlesProvider(apiKey: key), language: defaultSubtitleLanguage)
+    }
+
+    public func searchSubtitles(for url: URL) {
+        Task {
+            let title = url.deletingPathExtension().lastPathComponent
+            let year = fileMetadata[url]?.releaseDate.flatMap { Calendar.current.dateComponents([.year], from: $0).year }
+            let results = await subtitleManager?.search(title: title, year: year) ?? []
+            await MainActor.run {
+                self.subtitleCandidates[url] = results
+                self.status = results.isEmpty ? "No subtitles found" : "Found \(results.count) subtitles"
+            }
+        }
+    }
+
+    public func downloadAndAttachSubtitle(for url: URL, candidate: SubtitleCandidate) {
+        Task {
+            guard let manager = subtitleManager else {
+                await MainActor.run { self.status = "OpenSubtitles key not set" }
+                return
+            }
+            await MainActor.run { self.status = "Downloading subtitles..." }
+            guard let sub = await manager.download(candidate: candidate) else {
+                await MainActor.run { self.status = "Subtitle download failed" }
+                return
+            }
+            do {
+                try await manager.muxSubtitle(into: url, subtitle: sub)
+                let tracks = await inspectTracks(url: url)
+                await MainActor.run {
+                    self.fileTracks[url] = tracks
+                    self.status = "Subtitle attached (\(candidate.language))"
+                }
+            } catch {
+                await MainActor.run { self.status = "Subtitle attach failed: \(error.localizedDescription)" }
+            }
+        }
+    }
+
+    // MARK: - Search
+
+    private func runSearch(query: String, yearHint: Int?) async {
+        status = "Searching..."
+        let includeAdult = adultEnabled
+        let providers = searchProviders.filter { includeAdult || !$0.isAdult }
+
+        let tasks = providers.map { provider in
+            Task { () -> [MetadataResult] in
+                do {
+                    let results = try await provider.search(query: query)
+                    return annotate(results, providerID: provider.id)
+                } catch {
+                    await statusStream.add("Search failed for \(provider.id): \(error.localizedDescription)")
+                    return []
+                }
+            }
+        }
+
+        var collected: [MetadataResult] = []
+        for task in tasks {
+            let results = await task.value
+            collected.append(contentsOf: results)
+        }
+
+        let sorted = collected.sorted {
+            let lhsScore = $0.score ?? 0
+            let rhsScore = $1.score ?? 0
+            if lhsScore == rhsScore, let hint = yearHint, let ly = $0.year, let ry = $1.year {
+                return abs(hint - ly) < abs(hint - ry)
+            }
+            return lhsScore > rhsScore
+        }
+
+        await MainActor.run {
+            self.searchResults = sorted
+            self.status = sorted.isEmpty ? "No results" : "Found \(sorted.count) result\(sorted.count == 1 ? "" : "s")"
+        }
+    }
+
+    private func annotate(_ results: [MetadataResult], providerID: String) -> [MetadataResult] {
+        results.map { res in
+            MetadataResult(
+                id: res.id,
+                title: res.title,
+                score: res.score,
+                year: res.year,
+                source: res.source ?? providerID
+            )
+        }
     }
 
     // MARK: - Folder monitoring
@@ -414,6 +789,8 @@ public final class SettingsViewModel: ObservableObject {
     @Published public var nfoOutputDirectory: URL?
     @Published public var tvNamingTemplate: String = "S%02dE%02d - %t"
     @Published public var watchFolders: [URL] = []
+    @Published public var openSubtitlesKey: String = ""
+    @Published public var defaultSubtitleLanguage: String = "eng"
 
     private let settingsStore: SettingsStore
     private let apiKeys: APIKeyManager
@@ -443,6 +820,8 @@ public final class SettingsViewModel: ObservableObject {
         nfoOutputDirectory = settings.nfoOutputDirectory.flatMap { URL(fileURLWithPath: $0) }
         tvNamingTemplate = settings.tvNamingTemplate
         watchFolders = settings.watchFolders.compactMap { URL(string: $0) ?? URL(fileURLWithPath: $0) }
+        openSubtitlesKey = apiKeys.loadOpenSubtitlesKey() ?? ""
+        defaultSubtitleLanguage = settings.defaultSubtitleLanguage
     }
 
     public func save() {
@@ -457,6 +836,7 @@ public final class SettingsViewModel: ObservableObject {
                 settings.nfoOutputDirectory = nfoOutputDirectory?.path
                 settings.tvNamingTemplate = tvNamingTemplate
                 settings.watchFolders = watchFolders.map { $0.path }
+                settings.defaultSubtitleLanguage = defaultSubtitleLanguage
             }
             pipeline.retainOriginals = retainOriginals
             pipeline.outputDirectory = outputDirectory
@@ -468,6 +848,9 @@ public final class SettingsViewModel: ObservableObject {
             apiKeys.saveTVDBKey(tvdbKey)
             if !webToken.isEmpty {
                 apiKeys.saveWebToken(webToken)
+            }
+            if !openSubtitlesKey.isEmpty {
+                apiKeys.saveOpenSubtitlesKey(openSubtitlesKey)
             }
         }
     }

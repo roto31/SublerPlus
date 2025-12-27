@@ -8,6 +8,15 @@ set -euo pipefail
 #   ./scripts/build.sh --security # run security lane (warnings-as-errors + filtered tests)
 #   ./scripts/build.sh --skip-tests
 #
+# Versioning (semantic versioning):
+#   BASE_VERSION     Base version (default: 0.2.0)
+#   PRERELEASE       Prerelease tag (default: beta)
+#   VERSION          Full version override (e.g., 0.2.0-beta1, 1.0.0)
+#                     If not set, auto-increments beta number
+#   Examples:
+#     BASE_VERSION=0.2.0 PRERELEASE=beta ./scripts/build.sh --release
+#     VERSION=1.0.0 ./scripts/build.sh --release
+#
 # Env (optional):
 #   WEBUI_TOKEN      Optional token for WebUI auth
 #   TPDB_API_KEY     ThePornDB key

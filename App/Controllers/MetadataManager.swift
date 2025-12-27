@@ -6,6 +6,7 @@ public enum MetadataError: Error, Equatable {
     case unsupportedFileType
     case noProviderMatch
     case retainOriginalsCopyFailed
+    case trackInspectionFailed
 }
 
 public enum ProviderPreference: String, Codable, Sendable {
@@ -142,8 +143,9 @@ public struct AppSettings: Codable {
     public var nfoOutputDirectory: String?
     public var tvNamingTemplate: String
     public var watchFolders: [String]
+    public var defaultSubtitleLanguage: String
 
-    public init(adultEnabled: Bool = false, tpdbConfidence: Double = 0.5, lastKeyRotation: Date? = nil, retainOriginals: Bool = false, outputDirectory: String? = nil, generateNFO: Bool = false, nfoOutputDirectory: String? = nil, tvNamingTemplate: String = "S%02dE%02d - %t", watchFolders: [String] = []) {
+    public init(adultEnabled: Bool = false, tpdbConfidence: Double = 0.5, lastKeyRotation: Date? = nil, retainOriginals: Bool = false, outputDirectory: String? = nil, generateNFO: Bool = false, nfoOutputDirectory: String? = nil, tvNamingTemplate: String = "S%02dE%02d - %t", watchFolders: [String] = [], defaultSubtitleLanguage: String = "eng") {
         self.adultEnabled = adultEnabled
         self.tpdbConfidence = tpdbConfidence
         self.lastKeyRotation = lastKeyRotation
@@ -153,6 +155,7 @@ public struct AppSettings: Codable {
         self.nfoOutputDirectory = nfoOutputDirectory
         self.tvNamingTemplate = tvNamingTemplate
         self.watchFolders = watchFolders
+        self.defaultSubtitleLanguage = defaultSubtitleLanguage
     }
 }
 
@@ -263,7 +266,10 @@ public final class MetadataPipeline {
     public func writeResolved(details: MetadataDetails, to file: URL) async throws {
         let cover = await artwork?.fetchArtwork(from: details.coverURL)
         let tags = mp4TagUpdates(from: details, coverData: cover)
-        let targetURL = try await destinationURL(for: file)
+        var targetURL = try await destinationURL(for: file)
+        if let renamed = try? renameIfNeeded(targetURL, details: details) {
+            targetURL = renamed
+        }
         try mp4Handler.writeMetadata(details, tags: tags, to: targetURL)
         if generateNFO {
             let generator = NFOGenerator()
@@ -308,13 +314,20 @@ extension MetadataPipeline {
             } else {
                 yearDiff = 6 // penalize unknown year slightly
             }
+            var bonus: Double = 0
+            if d.mediaKind == .tvShow {
+                bonus += 0.3
+            }
+            if d.show != nil, d.seasonNumber != nil {
+                bonus += 0.2
+            }
             switch preference {
             case .balanced:
-                return (base * providerBoost) - (yearDiff * 0.15) + providerBoost * 0.5
+                return (base * providerBoost) - (yearDiff * 0.15) + providerBoost * 0.5 + bonus
             case .scoreFirst:
-                return (base * providerBoost) - (yearDiff * 0.05) + providerBoost
+                return (base * providerBoost) - (yearDiff * 0.05) + providerBoost + bonus
             case .yearFirst:
-                return (base * providerBoost) - (yearDiff * 0.3) + providerBoost * 0.4
+                return (base * providerBoost) - (yearDiff * 0.3) + providerBoost * 0.4 + bonus
             }
         }
         return candidates.max(by: { score($0) < score($1) }) ?? candidates[0]
@@ -352,10 +365,74 @@ extension MetadataPipeline {
     }
 
     private func dedupeKey(for item: MetadataDetails, hint: MetadataHint) -> String {
-        let title = item.title.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         let year = releaseYear(item) ?? hint.year ?? 0
+        if let show = item.show?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) {
+            let season = item.seasonNumber ?? 0
+            let episode = item.episodeNumber ?? 0
+            return "\(show)|\(season)|\(episode)|\(year)"
+        }
+        let title = item.title.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         let studio = (item.studio ?? "").lowercased()
         return "\(title)|\(year)|\(studio)"
+    }
+
+    // MARK: - TV naming
+
+    private func renameIfNeeded(_ url: URL, details: MetadataDetails) throws -> URL {
+        guard tvNamingTemplate.contains("%t") else { return url }
+
+        let title = sanitized(details.title)
+        let year = releaseYear(details)
+
+        // Attempt to parse season/episode from filename: S01E02 or 1x02
+        let name = url.deletingPathExtension().lastPathComponent
+        let pattern = #"(?i)(?:s(\d{1,2})e(\d{1,2})|(\d{1,2})x(\d{1,2}))"#
+        var season: Int = 1
+        var episode: Int = 1
+        if let match = name.range(of: pattern, options: .regularExpression) {
+            let matched = String(name[match])
+            if matched.lowercased().contains("s") {
+                let parts = matched.lowercased().replacingOccurrences(of: "s", with: "").split(separator: "e")
+                if parts.count == 2 {
+                    season = Int(parts[0]) ?? season
+                    episode = Int(parts[1]) ?? episode
+                }
+            } else if matched.contains("x") {
+                let parts = matched.split(separator: "x")
+                if parts.count == 2 {
+                    season = Int(parts[0]) ?? season
+                    episode = Int(parts[1]) ?? episode
+                }
+            }
+        }
+
+        var filename = tvNamingTemplate
+        filename = filename.replacingOccurrences(of: "%t", with: title)
+        filename = filename.replacingOccurrences(of: "%s", with: String(format: "%02d", season))
+        filename = filename.replacingOccurrences(of: "%e", with: String(format: "%02d", episode))
+        if let year {
+            filename = filename.replacingOccurrences(of: "%y", with: String(year))
+        }
+
+        // Clean unsafe chars
+        filename = filename.replacingOccurrences(of: #"[\\/:\*?"<>|]"#, with: "-", options: .regularExpression)
+        if filename.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return url
+        }
+
+        let newURL = url.deletingLastPathComponent().appendingPathComponent(filename).appendingPathExtension(url.pathExtension)
+        if newURL == url { return url }
+
+        do {
+            try FileManager.default.moveItem(at: url, to: newURL)
+            return newURL
+        } catch {
+            return url // fall back silently
+        }
+    }
+
+    private func sanitized(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

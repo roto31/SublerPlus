@@ -60,5 +60,17 @@ public final class APIKeyManager {
     public func clearTVDBKey() {
         store.remove(key: "tvdb")
     }
+
+    public func saveOpenSubtitlesKey(_ key: String) {
+        store.set(key: "opensubtitles", value: key)
+    }
+
+    public func loadOpenSubtitlesKey() -> String? {
+        store.get(key: "opensubtitles")
+    }
+
+    public func clearOpenSubtitlesKey() {
+        store.remove(key: "opensubtitles")
+    }
 }
 

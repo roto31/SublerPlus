@@ -7,18 +7,28 @@
 </head>
 <body>
   <header>
+    <div class="titlebar">
+      <div>
     <h1>SublerPlus Web Dashboard</h1>
-    <p>This is the embedded Web UI. Use the macOS app for full controls.</p>
+        <p class="muted">Lightweight controls for drop, search, and status.</p>
+      </div>
     <div class="toolbar">
+        <div id="live-pill" class="status-pill">● Connecting</div>
       <button id="home-btn" aria-label="Go to home">Home</button>
       <button id="reload-btn" aria-label="Reload view">Reload</button>
+      </div>
     </div>
   </header>
   <main>
     <section class="card" aria-label="Drag and drop files">
       <h2>Drag & Drop Files</h2>
       <div id="dropzone" class="dropzone" aria-label="Drop files here to add them for processing">
-        Drop files here or <input type="file" id="fileInput" multiple />
+        <strong>Drop files here</strong>
+        <div class="hint">MP4 / M4V / MOV only</div>
+        <label class="file-cta">
+          <input type="file" id="fileInput" multiple />
+          or choose files…
+        </label>
       </div>
       <textarea id="output" rows="6" readonly aria-label="Recent file actions"></textarea>
     </section>

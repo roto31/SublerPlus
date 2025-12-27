@@ -55,7 +55,10 @@ public final class StandardMetadataProvider: MetadataProvider, @unchecked Sendab
             tags: tags,
             performers: cast,
             coverURL: cover,
-            rating: movie.vote_average
+            rating: movie.vote_average,
+            source: id,
+            mediaKind: .movie,
+            sortTitle: movie.title
         )
     }
 

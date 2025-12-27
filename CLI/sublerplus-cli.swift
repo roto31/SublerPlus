@@ -5,11 +5,26 @@ import SublerPlusCore
 struct SublerPlusCLI {
     static func main() async {
         let args = CommandLine.arguments.dropFirst()
-        guard let first = args.first else {
-            print("Usage: sublerplus-cli <media-file-or-folder>")
+        var includeAdult = true
+        var autoSelectBest = false
+        var paths: [String] = []
+
+        for arg in args {
+            switch arg {
+            case "--no-adult":
+                includeAdult = false
+            case "--auto-best":
+                autoSelectBest = true
+            default:
+                paths.append(arg)
+            }
+        }
+
+        guard !paths.isEmpty else {
+            print("Usage: sublerplus-cli [--no-adult] [--auto-best] <media-file-or-folder> [...]")
             return
         }
-        let pathURL = URL(fileURLWithPath: first)
+
         let keychain = KeychainController()
         let mp4 = SublerMP4Handler()
         let tpdbKey = keychain.get(key: "tpdb") ??
@@ -34,21 +49,35 @@ struct SublerPlusCLI {
         let registry = ProvidersRegistry(providers: providers)
         let pipeline = MetadataPipeline(registry: registry, mp4Handler: mp4)
 
-        let files = collectMediaFiles(at: pathURL)
-        if files.isEmpty {
-            print("No media files found at \(pathURL.path)")
+        var allFiles: [URL] = []
+        for path in paths {
+            let url = URL(fileURLWithPath: path)
+            allFiles.append(contentsOf: collectMediaFiles(at: url))
+        }
+        let uniqueFiles = Array(Set(allFiles))
+        if uniqueFiles.isEmpty {
+            print("No media files found in provided paths.")
             return
         }
-        for fileURL in files {
+
+        print("Processing \(uniqueFiles.count) file(s) \(includeAdult ? "with" : "without") adult providers...")
+        for fileURL in uniqueFiles.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             do {
-                let details = try await pipeline.enrich(file: fileURL, includeAdult: true, preference: .balanced)
+                let details = try await pipeline.enrich(
+                    file: fileURL,
+                    includeAdult: includeAdult,
+                    preference: .balanced,
+                    onAmbiguous: { choices in
+                        Self.logAmbiguity(file: fileURL, choices: choices, autoSelect: autoSelectBest)
+                    }
+                )
                 if let details {
-                    print("Updated metadata for \(fileURL.lastPathComponent): \(details.title)")
+                    print("✓ \(fileURL.lastPathComponent) → \(details.title)")
                 } else {
-                    print("Ambiguous match for \(fileURL.lastPathComponent); please resolve in app.")
+                    print("⚠️  Skipped \(fileURL.lastPathComponent) (ambiguous)")
                 }
             } catch {
-                print("Failed for \(fileURL.lastPathComponent): \(error)")
+                print("✖︎ \(fileURL.lastPathComponent): \(error.localizedDescription)")
             }
         }
     }
@@ -69,6 +98,29 @@ struct SublerPlusCLI {
             results.append(url)
         }
         return results
+    }
+
+    private static func logAmbiguity(file: URL, choices: [MetadataDetails], autoSelect: Bool) -> MetadataDetails? {
+        print("Ambiguous matches for \(file.lastPathComponent):")
+        for (idx, choice) in choices.enumerated() {
+            let year = choice.releaseDate.flatMap { Calendar.current.dateComponents([.year], from: $0).year }
+            let provider = choice.source ?? "unknown"
+            let score = choice.rating.map { String(format: "%.2f", $0) } ?? "–"
+            if let year {
+                print("  \(idx + 1). \(choice.title) (\(year)) [\(provider)] score: \(score)")
+            } else {
+                print("  \(idx + 1). \(choice.title) [\(provider)] score: \(score)")
+            }
+        }
+        guard autoSelect else {
+            print("  Skipping; rerun with --auto-best to pick the top match.")
+            return nil
+        }
+        let best = choices.max { ($0.rating ?? 0) < ($1.rating ?? 0) } ?? choices.first
+        if let best {
+            print("  Auto-selecting: \(best.title)")
+        }
+        return best
     }
 }
 

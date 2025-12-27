@@ -57,6 +57,18 @@ struct FileListView: View {
                 }
                 .accessibilityLabel("File list")
                 .accessibilityHint("Select a file to enrich or drop files to add")
+            .overlay {
+                if viewModel.mediaFiles.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "tray.and.arrow.down")
+                            .foregroundColor(.secondary)
+                        Text("Drop files here or use Add Files to begin.")
+                            .font(.callout)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding()
+                }
+            }
 
                 HStack(spacing: 12) {
                     Button {
@@ -106,34 +118,88 @@ struct FileListView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Jobs")
-                        .font(.headline)
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityHint("Queued, running, failed, and ambiguous jobs")
+                    HStack {
+                        Text("Jobs")
+                            .font(.headline)
+                            .accessibilityAddTraits(.isHeader)
+                            .accessibilityHint("Queued, running, failed, and ambiguous jobs")
+                        Spacer()
+                        let stats = jobStats(viewModel.jobs)
+                        if stats.total > 0 {
+                            HStack(spacing: 8) {
+                                if stats.queued > 0 {
+                                    Label("\(stats.queued)", systemImage: "clock")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                if stats.running > 0 {
+                                    Label("\(stats.running)", systemImage: "arrow.clockwise")
+                                        .font(.caption)
+                                        .foregroundColor(.blue)
+                                }
+                                if stats.succeeded > 0 {
+                                    Label("\(stats.succeeded)", systemImage: "checkmark.circle")
+                                        .font(.caption)
+                                        .foregroundColor(.green)
+                                }
+                                if stats.failed > 0 {
+                                    Label("\(stats.failed)", systemImage: "exclamationmark.triangle")
+                                        .font(.caption)
+                                        .foregroundColor(.red)
+                                }
+                            }
+                        }
+                    }
                     ScrollView {
                         VStack(alignment: .leading, spacing: 6) {
-                            ForEach(viewModel.jobs, id: \.id) { job in
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(job.url.lastPathComponent)
-                                            .font(.subheadline)
-                                        Text(job.message)
+                            if viewModel.jobs.isEmpty {
+                                Text("No jobs in queue")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .padding(.vertical, 20)
+                            } else {
+                                ForEach(viewModel.jobs, id: \.id) { job in
+                                    HStack {
+                                        statusIcon(for: job.status)
+                                            .foregroundColor(color(for: job.status))
                                             .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-                                    Spacer()
-                                    Text(job.status.rawValue.capitalized)
-                                        .font(.caption)
-                                        .foregroundColor(color(for: job.status))
-                                    if job.status == .failed {
-                                        Button {
-                                            viewModel.retryJob(id: job.id)
-                                        } label: {
-                                            Label("Retry", systemImage: "arrow.clockwise")
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(job.url.lastPathComponent)
+                                                .font(.subheadline)
+                                                .lineLimit(1)
+                                            Text(job.message)
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                                .lineLimit(2)
                                         }
-                                        .buttonStyle(.bordered)
-                                        .accessibilityHint("Retry this job")
+                                        Spacer()
+                                        if job.status == .running {
+                                            ProgressView()
+                                                .scaleEffect(0.7)
+                                        } else {
+                                            Text(job.status.rawValue.capitalized)
+                                                .font(.caption)
+                                                .foregroundColor(color(for: job.status))
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(color(for: job.status).opacity(0.2))
+                                                .cornerRadius(4)
+                                        }
+                                        if job.status == .failed {
+                                            Button {
+                                                viewModel.retryJob(id: job.id)
+                                            } label: {
+                                                Label("Retry", systemImage: "arrow.clockwise")
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .accessibilityHint("Retry this job")
+                                        }
                                     }
+                                    .padding(.vertical, 4)
+                                    .padding(.horizontal, 8)
+                                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.3))
+                                    .cornerRadius(6)
                                 }
                             }
                         }
@@ -173,7 +239,29 @@ struct FileListView: View {
                 if let selected = viewModel.selectedFile {
                     let meta = viewModel.fileMetadata[selected]
                     let job = viewModel.job(for: selected)
-                    FileDetailView(file: selected, details: meta, job: job)
+                    let tracks = viewModel.tracks(for: selected) ?? []
+                    let chapters = viewModel.chapters(for: selected) ?? []
+                    let subs = viewModel.subtitles(for: selected) ?? []
+                    FileDetailView(
+                        file: selected,
+                        details: meta,
+                        job: job,
+                        onRefreshArtwork: {
+                            viewModel.refreshArtwork(for: selected)
+                        },
+                        onApplyArtwork: { alt in
+                            viewModel.applyArtwork(for: selected, to: alt)
+                        },
+                        tracks: tracks,
+                        chapters: chapters,
+                        subtitles: subs,
+                        onSearchSubtitles: {
+                            viewModel.searchSubtitles(for: selected)
+                        },
+                        onAttachSubtitle: { candidate in
+                            viewModel.downloadAndAttachSubtitle(for: selected, candidate: candidate)
+                        }
+                    )
                         .accessibilityLabel("File details")
                 }
             }
@@ -197,6 +285,24 @@ struct FileListView: View {
         case .succeeded: return .green
         case .failed: return .red
         }
+    }
+    
+    private func statusIcon(for status: Job.Status) -> Image {
+        switch status {
+        case .queued: return Image(systemName: "clock")
+        case .running: return Image(systemName: "arrow.clockwise")
+        case .succeeded: return Image(systemName: "checkmark.circle.fill")
+        case .failed: return Image(systemName: "exclamationmark.triangle.fill")
+        }
+    }
+    
+    private func jobStats(_ jobs: [Job]) -> (total: Int, queued: Int, running: Int, succeeded: Int, failed: Int) {
+        let total = jobs.count
+        let queued = jobs.filter { $0.status == .queued }.count
+        let running = jobs.filter { $0.status == .running }.count
+        let succeeded = jobs.filter { $0.status == .succeeded }.count
+        let failed = jobs.filter { $0.status == .failed }.count
+        return (total, queued, running, succeeded, failed)
     }
 }
 

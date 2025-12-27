@@ -55,3 +55,11 @@
 - Keep temporary writes in app container or user-selected folder; AtomCodec already writes to temp then replaces.
 - Verify entitlements against Apple HIG and store policies before distribution.
 
+### Sandbox/Entitlements Plan
+- App Sandbox: enable; allow **Outgoing Network**; restrict domains via ATS `NSExceptionDomains` to `api.theporndb.net`, `api.themoviedb.org`, `api4.thetvdb.com`, and `image.tmdb.org`. Deny inbound.
+- File access: rely on `NSOpenPanel`/`NSSavePanel` security-scoped bookmarks for user-selected files/folders; no broad file-read/write entitlements. Keep temp writes inside app container or selected output directory.
+- Keychain: continue using generic password items; no access groups required. Add `com.apple.security.personal-information.keychain` only if sandbox requires explicit entitlement for generic passwords.
+- Web server: keep bound to `127.0.0.1`; no Bonjour/remote; no additional network listeners.
+- Harden ATS: require HTTPS for all provider calls; no arbitrary loads.
+- Build/verify: add an entitlements file for the SwiftUI app target and run `codesign --display --entitlements :- SublerPlus.app` to confirm. Exercise `swift test --filter WebServerSecurityTests` with sandbox on.
+

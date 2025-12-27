@@ -16,7 +16,9 @@ struct Atom {
 
 enum AtomCodec {
     /// Update or replace the `ilst` atom contents with the provided tags inside moov/udta/meta.
-    /// Tags supported: ©nam (String), ©ART (String), ©gen (String), ©day (String), covr (Data).
+    /// Tags supported: common strings (©nam, ©ART, ©gen, ©day, tvsh, tven, sonm, soar, soal, ©lyr),
+    /// ints (tvsn, tves, stik, hdvd, rtng), pair ints (trkn, disk), bool-ish ints (hevc, hdrv, pgap, cpil),
+    /// and artwork (covr).
     /// Best-effort: if structure is missing, this call is a no-op.
     static func updateIlst(at url: URL, tags: [String: Any]) throws {
         guard var data = try? Data(contentsOf: url) else { throw AtomCodecError.fileReadFailed }
@@ -73,6 +75,57 @@ enum AtomCodec {
         if let day = tags["©day"] as? String {
             children.append(makeDataAtom(fourcc: "©day", value: day))
         }
+        if let lyrics = tags["©lyr"] as? String {
+            children.append(makeDataAtom(fourcc: "©lyr", value: lyrics))
+        }
+        if let show = tags["tvsh"] as? String {
+            children.append(makeDataAtom(fourcc: "tvsh", value: show))
+        }
+        if let episodeID = tags["tven"] as? String {
+            children.append(makeDataAtom(fourcc: "tven", value: episodeID))
+        }
+        if let sortName = tags["sonm"] as? String {
+            children.append(makeDataAtom(fourcc: "sonm", value: sortName))
+        }
+        if let sortArtist = tags["soar"] as? String {
+            children.append(makeDataAtom(fourcc: "soar", value: sortArtist))
+        }
+        if let sortAlbum = tags["soal"] as? String {
+            children.append(makeDataAtom(fourcc: "soal", value: sortAlbum))
+        }
+        if let season = tags["tvsn"] as? Int {
+            children.append(makeIntAtom(fourcc: "tvsn", value: season))
+        }
+        if let episode = tags["tves"] as? Int {
+            children.append(makeIntAtom(fourcc: "tves", value: episode))
+        }
+        if let mediaKind = tags["stik"] as? Int {
+            children.append(makeIntAtom(fourcc: "stik", value: mediaKind))
+        }
+        if let hd = tags["hdvd"] as? Int {
+            children.append(makeIntAtom(fourcc: "hdvd", value: hd))
+        }
+        if let hevc = tags["hevc"] as? Int {
+            children.append(makeIntAtom(fourcc: "hevc", value: hevc))
+        }
+        if let hdr = tags["hdrv"] as? Int {
+            children.append(makeIntAtom(fourcc: "hdrv", value: hdr))
+        }
+        if let advisory = tags["rtng"] as? Int {
+            children.append(makeIntAtom(fourcc: "rtng", value: advisory))
+        }
+        if let gapless = tags["pgap"] as? Int {
+            children.append(makeIntAtom(fourcc: "pgap", value: gapless))
+        }
+        if let compilation = tags["cpil"] as? Int {
+            children.append(makeIntAtom(fourcc: "cpil", value: compilation))
+        }
+        if let track = tags["trkn"] as? [Int], track.count >= 2 {
+            children.append(makePairAtom(fourcc: "trkn", a: track[0], b: track[1]))
+        }
+        if let disc = tags["disk"] as? [Int], disc.count >= 2 {
+            children.append(makePairAtom(fourcc: "disk", a: disc[0], b: disc[1]))
+        }
         if let cover = tags["covr"] as? Data {
             children.append(makeDataAtom(fourcc: "covr", data: cover, dataType: 13)) // JPEG/PNG
         }
@@ -88,6 +141,21 @@ enum AtomCodec {
     private static func makeDataAtom(fourcc: String, value: String) -> Data {
         let utf8 = Data(value.utf8)
         return makeDataAtom(fourcc: fourcc, data: utf8, dataType: 1)
+    }
+
+    private static func makeIntAtom(fourcc: String, value: Int) -> Data {
+        var bytes = Data()
+        bytes.append(UInt32(value).bigEndianData)
+        return makeDataAtom(fourcc: fourcc, data: bytes, dataType: 21)
+    }
+
+    private static func makePairAtom(fourcc: String, a: Int, b: Int) -> Data {
+        var bytes = Data()
+        bytes.append(UInt16(0).bigEndianData) // placeholder
+        bytes.append(UInt16(a).bigEndianData)
+        bytes.append(UInt16(b).bigEndianData)
+        bytes.append(UInt16(0).bigEndianData)
+        return makeDataAtom(fourcc: fourcc, data: bytes, dataType: 0)
     }
 
     private static func makeDataAtom(fourcc: String, data: Data, dataType: UInt32) -> Data {
@@ -157,6 +225,13 @@ private extension UInt32 {
     var bigEndianData: Data {
         var be = self.bigEndian
         return Data(bytes: &be, count: MemoryLayout<UInt32>.size)
+    }
+}
+
+private extension UInt16 {
+    var bigEndianData: Data {
+        var be = self.bigEndian
+        return Data(bytes: &be, count: MemoryLayout<UInt16>.size)
     }
 }
 

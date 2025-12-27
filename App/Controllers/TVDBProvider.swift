@@ -50,7 +50,11 @@ public final class TVDBProvider: MetadataProvider, @unchecked Sendable {
             tags: series.genres ?? [],
             performers: series.actors ?? [],
             coverURL: cover,
-            rating: series.score
+            rating: series.score,
+            source: self.id,
+            show: series.name,
+            mediaKind: .tvShow,
+            sortTitle: series.name
         )
     }
 

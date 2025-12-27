@@ -33,6 +33,8 @@ struct WebContentContainer: View {
                     .textFieldStyle(.roundedBorder)
                     .disableAutocorrection(true)
                     .focused($addressFocused)
+                    .accessibilityLabel("Web UI address")
+                    .accessibilityHint("Enter a local URL such as http://127.0.0.1:8080")
                     .onTapGesture { addressFocused = true }
             }
             .padding(8)
