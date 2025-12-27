@@ -13,6 +13,8 @@ struct FileDetailView: View {
     var subtitles: [SubtitleCandidate] = []
     var onSearchSubtitles: (() -> Void)?
     var onAttachSubtitle: ((SubtitleCandidate) -> Void)?
+    
+    @State private var showArtworkBrowser = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -57,6 +59,11 @@ struct FileDetailView: View {
                         Text("Artwork")
                             .font(.headline)
                         Spacer()
+                        Button("Browse Artwork") {
+                            showArtworkBrowser = true
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityHint("Browse iTunes artwork")
                         if onRefreshArtwork != nil {
                             Button("Refresh Artwork") {
                                 onRefreshArtwork?()
@@ -284,6 +291,11 @@ struct FileDetailView: View {
             }
         }
         .padding()
+        .sheet(isPresented: $showArtworkBrowser) {
+            ArtworkBrowserView { artworkURL in
+                onApplyArtwork?(artworkURL)
+            }
+        }
     }
 
     private func color(for status: Job.Status) -> Color {

@@ -46,6 +46,308 @@ public final class SublerMP4Handler: MP4Handler {
 
         return MetadataHint(title: title, year: year, performers: performers)
     }
+    
+    public func readFullMetadata(at url: URL) throws -> MetadataDetails? {
+        let asset = AVURLAsset(url: url)
+        let metadata = asset.metadata
+        
+        // Extract title
+        let title = firstString(in: metadata, identifiers: [
+            .commonIdentifierTitle,
+            .iTunesMetadataSongName
+        ]) ?? url.deletingPathExtension().lastPathComponent
+        
+        // Extract synopsis/description
+        let synopsis = firstString(in: metadata, identifiers: [
+            .commonIdentifierDescription,
+            .iTunesMetadataDescription,
+            .quickTimeMetadataDescription
+        ])
+        
+        // Extract studio/network
+        let studio = firstString(in: metadata, identifiers: [
+            .iTunesMetadataPublisher,
+            .quickTimeMetadataPublisher,
+            .commonIdentifierPublisher
+        ])
+        
+        // Extract release date
+        let releaseDateString = firstString(in: metadata, identifiers: [
+            .commonIdentifierCreationDate,
+            .iTunesMetadataReleaseDate,
+            .quickTimeMetadataCreationDate
+        ])
+        let releaseDate = releaseDateString.flatMap { parseDate($0) }
+        
+        // Extract performers/actors
+        let artist = firstString(in: metadata, identifiers: [
+            .commonIdentifierArtist,
+            .iTunesMetadataArtist
+        ])
+        let performers = artist?
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } ?? []
+        
+        // Extract tags/genres
+        var tags: [String] = []
+        if let genre = firstString(in: metadata, identifiers: [
+            .quickTimeMetadataGenre,
+            .iTunesMetadataUserGenre,
+            .commonIdentifierType
+        ]) {
+            tags.append(genre)
+        }
+        
+        // Extract metadata from MP4 atoms (TV show info, rating, etc.)
+        var atomTags: [String: Any] = [:]
+        do {
+            atomTags = try AtomCodec.readIlst(from: url)
+        } catch {
+            // Best effort - if atom parsing fails, continue with AVFoundation metadata only
+        }
+        
+        // Extract rating from atoms (rtng atom)
+        let rating: Double? = {
+            if let rtngValue = atomTags["rtng"] as? Int32 {
+                return Double(rtngValue)
+            }
+            return nil
+        }()
+        
+        // Extract TV show info from atoms
+        let show = atomTags["tvsh"] as? String
+        let seasonNumber: Int? = {
+            if let tvsnValue = atomTags["tvsn"] as? Int32 {
+                return Int(tvsnValue)
+            }
+            return nil
+        }()
+        let episodeNumber: Int? = {
+            if let tvesValue = atomTags["tves"] as? Int32 {
+                return Int(tvesValue)
+            }
+            return nil
+        }()
+        let episodeID = atomTags["tven"] as? String
+        
+        // Extract media kind
+        let mediaKindString = firstString(in: metadata, identifiers: [
+            .iTunesMetadataContentRating,
+            .commonIdentifierType
+        ])
+        let mediaKind = mediaKindString.flatMap { MediaKind(rawValue: $0.lowercased()) }
+        
+        // Extract content rating
+        let contentRating = firstString(in: metadata, identifiers: [
+            .iTunesMetadataContentRating
+        ]).flatMap { Int($0) }
+        
+        // Extract lyrics
+        let lyrics = firstString(in: metadata, identifiers: [
+            .iTunesMetadataLyrics
+        ])
+        
+        // Extract track/disc info (for music) - try atoms first, then AVFoundation
+        let trackNumber: Int? = {
+            if let trknPair = atomTags["trkn"] as? [Int], trknPair.count >= 1 {
+                return trknPair[0]
+            }
+            return firstString(in: metadata, identifiers: [
+                .iTunesMetadataTrackNumber
+            ]).flatMap { Int($0) }
+        }()
+        
+        let trackTotal: Int? = {
+            if let trknPair = atomTags["trkn"] as? [Int], trknPair.count >= 2 {
+                return trknPair[1]
+            }
+            return nil
+        }()
+        
+        let discNumber: Int? = {
+            if let diskPair = atomTags["disk"] as? [Int], diskPair.count >= 1 {
+                return diskPair[0]
+            }
+            return firstString(in: metadata, identifiers: [
+                .iTunesMetadataDiscNumber
+            ]).flatMap { Int($0) }
+        }()
+        
+        let discTotal: Int? = {
+            if let diskPair = atomTags["disk"] as? [Int], diskPair.count >= 2 {
+                return diskPair[1]
+            }
+            return nil
+        }()
+        
+        // Extract media kind from atoms (stik atom)
+        let mediaKindFromAtoms: MediaKind? = {
+            if let stikValue = atomTags["stik"] as? Int32 {
+                return mediaKindFromStik(Int(stikValue))
+            }
+            return nil
+        }()
+        
+        // Use atom media kind if available, otherwise fall back to AVFoundation
+        let finalMediaKind = mediaKindFromAtoms ?? mediaKind
+        
+        // Generate ID from file URL
+        let id = url.absoluteString
+        
+        // Extract additional metadata from atoms
+        let sortTitle = atomTags["sonm"] as? String
+        let sortArtist = atomTags["soar"] as? String
+        let sortAlbum = atomTags["soal"] as? String
+        
+        // Extract HD/HEVC/HDR flags from atoms
+        let isHD: Bool? = {
+            if let hdvdValue = atomTags["hdvd"] as? Int32 {
+                return hdvdValue != 0
+            }
+            return nil
+        }()
+        
+        let isHEVC: Bool? = {
+            if let hevcValue = atomTags["hevc"] as? Int32 {
+                return hevcValue != 0
+            }
+            return nil
+        }()
+        
+        let isHDR: Bool? = {
+            if let hdrvValue = atomTags["hdrv"] as? Int32 {
+                return hdrvValue != 0
+            }
+            return nil
+        }()
+        
+        let isGapless: Bool? = {
+            if let pgapValue = atomTags["pgap"] as? Int32 {
+                return pgapValue != 0
+            }
+            return nil
+        }()
+        
+        let isCompilation: Bool? = {
+            if let cpilValue = atomTags["cpil"] as? Int32 {
+                return cpilValue != 0
+            }
+            return nil
+        }()
+        
+        return MetadataDetails(
+            id: id,
+            title: title,
+            synopsis: synopsis,
+            releaseDate: releaseDate,
+            studio: studio,
+            tags: tags,
+            performers: performers,
+            coverURL: nil, // Artwork will be extracted separately
+            rating: rating,
+            source: "file",
+            show: show,
+            episodeID: episodeID,
+            seasonNumber: seasonNumber,
+            episodeNumber: episodeNumber,
+            mediaKind: finalMediaKind,
+            sortTitle: sortTitle,
+            sortArtist: sortArtist,
+            sortAlbum: sortAlbum,
+            trackNumber: trackNumber,
+            trackTotal: trackTotal,
+            discNumber: discNumber,
+            discTotal: discTotal,
+            isHD: isHD,
+            isHEVC: isHEVC,
+            isHDR: isHDR,
+            artworkAlternates: nil,
+            lyrics: lyrics,
+            contentRating: contentRating,
+            isGapless: isGapless,
+            isCompilation: isCompilation
+        )
+    }
+    
+    /// Convert stik (media kind) atom value to MediaKind enum
+    private func mediaKindFromStik(_ stik: Int) -> MediaKind? {
+        // stik values: 0=Movie, 1=Normal, 2=AudioBook, 5=Whacked Bookmark, 6=Music Video, 9=Short Film, 10=TV Show, 11=Booklet, 14=Ringtone
+        switch stik {
+        case 0: return .movie
+        case 2: return .audiobook
+        case 6: return .musicVideo
+        case 9: return .shortFilm
+        case 10: return .tvShow
+        case 14: return .ringtone
+        default: return nil
+        }
+    }
+    
+    private func parseDate(_ dateString: String) -> Date? {
+        let formatters: [DateFormatter] = [
+            {
+                let f = DateFormatter()
+                f.dateFormat = "yyyy-MM-dd"
+                return f
+            }(),
+            {
+                let f = DateFormatter()
+                f.dateFormat = "yyyy"
+                return f
+            }(),
+            {
+                let f = DateFormatter()
+                f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
+                f.timeZone = TimeZone(abbreviation: "UTC")
+                return f
+            }(),
+            {
+                let f = DateFormatter()
+                f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+                return f
+            }()
+        ]
+        
+        for formatter in formatters {
+            if let date = formatter.date(from: dateString) {
+                return date
+            }
+        }
+        return nil
+    }
+    
+    public func extractArtwork(from url: URL) throws -> URL? {
+        let asset = AVURLAsset(url: url)
+        let metadata = asset.metadata
+        
+        // Look for artwork in metadata
+        let artworkItems = AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: .commonIdentifierArtwork)
+        if artworkItems.isEmpty {
+            // Try iTunes artwork
+            let itunesArtwork = AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: .iTunesMetadataCoverArt)
+            if let item = itunesArtwork.first,
+               let data = item.dataValue {
+                return saveArtworkToTempFile(data: data)
+            }
+        } else if let item = artworkItems.first,
+                  let data = item.dataValue {
+            return saveArtworkToTempFile(data: data)
+        }
+        
+        return nil
+    }
+    
+    private func saveArtworkToTempFile(data: Data) -> URL? {
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempFile = tempDir.appendingPathComponent("\(UUID().uuidString).jpg")
+        
+        do {
+            try data.write(to: tempFile)
+            return tempFile
+        } catch {
+            return nil
+        }
+    }
 
     public func writeMetadata(_ metadata: MetadataDetails, tags: [String: Any], to url: URL) throws {
         let asset = AVURLAsset(url: url)
@@ -144,8 +446,12 @@ public struct AppSettings: Codable {
     public var tvNamingTemplate: String
     public var watchFolders: [String]
     public var defaultSubtitleLanguage: String
+    public var autoSubtitleLookup: Bool
+    public var iTunesCountry: String
+    public var preferHighResArtwork: Bool
+    public var enableMusicMetadata: Bool
 
-    public init(adultEnabled: Bool = false, tpdbConfidence: Double = 0.5, lastKeyRotation: Date? = nil, retainOriginals: Bool = false, outputDirectory: String? = nil, generateNFO: Bool = false, nfoOutputDirectory: String? = nil, tvNamingTemplate: String = "S%02dE%02d - %t", watchFolders: [String] = [], defaultSubtitleLanguage: String = "eng") {
+    public init(adultEnabled: Bool = false, tpdbConfidence: Double = 0.5, lastKeyRotation: Date? = nil, retainOriginals: Bool = false, outputDirectory: String? = nil, generateNFO: Bool = false, nfoOutputDirectory: String? = nil, tvNamingTemplate: String = "S%02dE%02d - %t", watchFolders: [String] = [], defaultSubtitleLanguage: String = "eng", autoSubtitleLookup: Bool = false, iTunesCountry: String = "us", preferHighResArtwork: Bool = true, enableMusicMetadata: Bool = true) {
         self.adultEnabled = adultEnabled
         self.tpdbConfidence = tpdbConfidence
         self.lastKeyRotation = lastKeyRotation
@@ -156,6 +462,10 @@ public struct AppSettings: Codable {
         self.tvNamingTemplate = tvNamingTemplate
         self.watchFolders = watchFolders
         self.defaultSubtitleLanguage = defaultSubtitleLanguage
+        self.autoSubtitleLookup = autoSubtitleLookup
+        self.iTunesCountry = iTunesCountry
+        self.preferHighResArtwork = preferHighResArtwork
+        self.enableMusicMetadata = enableMusicMetadata
     }
 }
 
@@ -211,16 +521,19 @@ public final class MetadataPipeline {
     private let registry: ProvidersRegistry
     private let mp4Handler: MP4Handler
     private let artwork: ArtworkCacheManager?
+    private let subtitleManager: SubtitleManager?
     public var retainOriginals: Bool = false
     public var outputDirectory: URL?
     public var generateNFO: Bool = false
     public var nfoOutputDirectory: URL?
     public var tvNamingTemplate: String = "S%02dE%02d - %t"
+    public var autoSubtitleLookup: Bool = false
 
-    public init(registry: ProvidersRegistry, mp4Handler: MP4Handler, artwork: ArtworkCacheManager? = nil) {
+    public init(registry: ProvidersRegistry, mp4Handler: MP4Handler, artwork: ArtworkCacheManager? = nil, subtitleManager: SubtitleManager? = nil) {
         self.registry = registry
         self.mp4Handler = mp4Handler
         self.artwork = artwork
+        self.subtitleManager = subtitleManager
     }
 
     public func enrich(
@@ -259,8 +572,55 @@ public final class MetadataPipeline {
             }
         } else {
             try await writeResolved(details: best, to: file)
+            
+            // Automatic subtitle lookup after successful metadata enrichment
+            if autoSubtitleLookup, let subtitleMgr = subtitleManager {
+                await performAutoSubtitleLookup(for: file, metadata: best, subtitleManager: subtitleMgr)
+            }
+            
             return best
         }
+    }
+    
+    private func performAutoSubtitleLookup(for file: URL, metadata: MetadataDetails, subtitleManager: SubtitleManager) async {
+        // Extract title and year from enriched metadata
+        let title = metadata.title
+        let year = metadata.releaseDate.flatMap { Calendar.current.dateComponents([.year], from: $0).year }
+        
+        // Search for subtitles (language is set in SubtitleManager initialization)
+        let candidates = await subtitleManager.search(title: title, year: year)
+        
+        guard let bestCandidate = findBestSubtitleMatch(candidates: candidates, metadata: metadata) else {
+            return // No suitable match found
+        }
+        
+        // Download and embed subtitle
+        guard let subtitleResult = await subtitleManager.download(candidate: bestCandidate) else {
+            return // Download failed
+        }
+        
+        do {
+            try await subtitleManager.muxSubtitle(into: file, subtitle: subtitleResult)
+        } catch {
+            // Log error but don't fail the enrichment
+            // Subtitle attachment is best-effort
+        }
+    }
+    
+    private func findBestSubtitleMatch(candidates: [SubtitleCandidate], metadata: MetadataDetails) -> SubtitleCandidate? {
+        guard !candidates.isEmpty else { return nil }
+        
+        // Prefer exact year match
+        if let metadataYear = metadata.releaseDate.flatMap({ Calendar.current.dateComponents([.year], from: $0).year }) {
+            let yearMatches = candidates.filter { $0.releaseYear == metadataYear }
+            if !yearMatches.isEmpty {
+                // Return highest scored match with year match
+                return yearMatches.sorted { ($0.score ?? 0) > ($1.score ?? 0) }.first
+            }
+        }
+        
+        // Fallback: return highest scored match
+        return candidates.sorted { ($0.score ?? 0) > ($1.score ?? 0) }.first
     }
 
     public func writeResolved(details: MetadataDetails, to file: URL) async throws {
@@ -284,7 +644,7 @@ public final class MetadataPipeline {
 
 private func isSupportedMedia(_ url: URL) -> Bool {
     let ext = url.pathExtension.lowercased()
-    return ["mp4", "m4v", "mov"].contains(ext)
+    return ["mp4", "m4v", "m4a", "mov", "mkv"].contains(ext)
 }
 
 extension MetadataPipeline {

@@ -7,13 +7,15 @@ public struct MediaFile: Identifiable, Hashable, Sendable {
     public let size: Int64?
     public let tracks: [MediaTrack]?
     public let chapters: [Chapter]?
+    public let containerFormat: ContainerFormat?
 
-    public init(url: URL, size: Int64? = nil, tracks: [MediaTrack]? = nil, chapters: [Chapter]? = nil) {
+    public init(url: URL, size: Int64? = nil, tracks: [MediaTrack]? = nil, chapters: [Chapter]? = nil, containerFormat: ContainerFormat? = nil) {
         self.url = url
         self.displayName = url.deletingPathExtension().lastPathComponent
         self.size = size
         self.tracks = tracks
         self.chapters = chapters
+        self.containerFormat = containerFormat ?? ContainerImporter.detectFormat(url: url)
     }
 }
 

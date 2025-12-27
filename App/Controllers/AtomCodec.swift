@@ -61,7 +61,7 @@ enum AtomCodec {
         _ = try FileManager.default.replaceItemAt(url, withItemAt: tempURL)
     }
 
-    private static func buildIlst(tags: [String: Any]) -> Data {
+    internal static func buildIlst(tags: [String: Any]) -> Data {
         var children = Data()
         if let title = tags["©nam"] as? String {
             children.append(makeDataAtom(fourcc: "©nam", value: title))
@@ -176,7 +176,7 @@ enum AtomCodec {
         return outer
     }
 
-    private static func findAtom(in data: Data, type: String, start: Int, length: Int) -> Atom? {
+    public static func findAtom(in data: Data, type: String, start: Int, length: Int) -> Atom? {
         var offset = start
         let end = start + length
         while offset + 8 <= end {
@@ -196,7 +196,7 @@ enum AtomCodec {
         return nil
     }
 
-    private static func adjustSize(in data: inout Data, at offset: Int, by delta: Int) {
+    static func adjustSize(in data: inout Data, at offset: Int, by delta: Int) {
         guard let size = readUInt32(data, offset) else { return }
         let newSize = UInt32(Int(size) + delta)
         data.replaceSubrange(offset ..< offset + 4, with: newSize.bigEndianData)
@@ -213,22 +213,168 @@ enum AtomCodec {
         return String(bytes: slice, encoding: .ascii)
     }
 
-    private static func fourCC(_ s: String) -> Data {
+    static func fourCC(_ s: String) -> Data {
         var d = Data(count: 4)
         let bytes = Array(s.utf8.prefix(4))
         for i in 0..<min(4, bytes.count) { d[i] = bytes[i] }
         return d
     }
+    
+    /// Read ilst atom and extract all metadata tags
+    /// Returns a dictionary mapping fourCC codes to their values (String, Int, or Data)
+    public static func readIlst(from url: URL) throws -> [String: Any] {
+        guard let data = try? Data(contentsOf: url) else {
+            throw AtomCodecError.fileReadFailed
+        }
+        
+        // Find moov -> udta -> meta -> ilst structure
+        guard let moov = findAtom(in: data, type: "moov", start: 0, length: data.count),
+              let udta = findAtom(in: data, type: "udta", start: moov.payloadRange.lowerBound, length: moov.payloadRange.count),
+              let meta = findAtom(in: data, type: "meta", start: udta.payloadRange.lowerBound, length: udta.payloadRange.count)
+        else {
+            // Structure missing - return empty dict (not an error, file may not have metadata)
+            return [:]
+        }
+        
+        // meta starts with 4 bytes (version/flags); ilst follows
+        let metaPayloadStart = meta.payloadRange.lowerBound + 4
+        let metaPayloadLen = meta.payloadRange.count - 4
+        guard metaPayloadLen > 8 else { return [:] }
+        
+        // Find ilst inside meta payload
+        let ilstSearchRange = metaPayloadStart ..< (metaPayloadStart + metaPayloadLen)
+        guard let ilst = findAtom(in: data, type: "ilst", start: ilstSearchRange.lowerBound, length: ilstSearchRange.count) else {
+            return [:]
+        }
+        
+        // Parse all child atoms in ilst
+        var tags: [String: Any] = [:]
+        var offset = ilst.payloadRange.lowerBound
+        let end = ilst.payloadRange.upperBound
+        
+        // Safety limit to prevent infinite loops on malformed files
+        let maxIterations = 10000
+        var iterations = 0
+        
+        while offset + 8 <= end && iterations < maxIterations {
+            iterations += 1
+            
+            guard let atomSize = readUInt32(data, offset),
+                  atomSize >= 8,
+                  atomSize <= UInt32(end - offset), // Ensure atom doesn't extend beyond ilst
+                  let fourCC = readType(data, offset + 4) else {
+                break // Malformed atom, stop parsing
+            }
+            
+            let intSize = Int(atomSize)
+            
+            // Validate atom doesn't extend beyond bounds
+            guard offset + intSize <= end,
+                  offset + intSize <= data.count else {
+                break // Atom extends beyond ilst or file
+            }
+            
+            // Parse the data atom inside
+            let atomPayloadStart = offset + 8
+            let atomPayloadEnd = offset + intSize
+            
+            // Only parse if we have a valid fourCC (not empty or invalid)
+            if !fourCC.isEmpty && fourCC.count == 4 {
+                if let value = parseDataAtom(in: data, start: atomPayloadStart, end: atomPayloadEnd) {
+                    // Only store non-nil, non-empty values
+                    if let stringValue = value as? String, !stringValue.isEmpty {
+                        tags[fourCC] = value
+                    } else if value is Int32 || value is [Int] || value is Data {
+                        tags[fourCC] = value
+                    }
+                }
+            }
+            
+            offset += intSize
+        }
+        
+        return tags
+    }
+    
+    /// Parse a data atom (e.g., "©nam", "tvsh", "tvsn") and extract its value
+    /// Structure: size(4) + "data"(4) + type(4) + locale(4) + payload
+    private static func parseDataAtom(in data: Data, start: Int, end: Int) -> Any? {
+        guard start + 16 <= end else { return nil }
+        
+        // Read inner "data" atom
+        guard let dataAtomSize = readUInt32(data, start),
+              dataAtomSize >= 16,
+              dataAtomSize <= UInt32(end - start), // Ensure atom doesn't extend beyond bounds
+              let dataType = readType(data, start + 4),
+              dataType == "data" else {
+            return nil
+        }
+        
+        // Read data type (4 bytes after "data")
+        let typeOffset = start + 8
+        guard typeOffset + 4 <= end,
+              let dataTypeValue = readUInt32(data, typeOffset) else {
+            return nil
+        }
+        
+        // Skip locale (4 bytes)
+        let payloadStart = start + 16
+        let payloadEnd = start + Int(dataAtomSize)
+        
+        // Validate payload bounds
+        guard payloadStart <= payloadEnd,
+              payloadEnd <= end,
+              payloadStart < data.count,
+              payloadEnd <= data.count else {
+            return nil
+        }
+        
+        // Handle empty payload
+        guard payloadStart < payloadEnd else {
+            return nil
+        }
+        
+        let payload = data.subdata(in: payloadStart..<payloadEnd)
+        
+        // Parse based on data type
+        switch dataTypeValue {
+        case 1: // UTF-8 string
+            guard !payload.isEmpty else { return nil }
+            let string = String(data: payload, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return string?.isEmpty == false ? string : nil // Return nil for empty strings
+        case 21: // Signed integer (big-endian)
+            guard payload.count >= 4 else { return nil }
+            return payload.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> Int32? in
+                guard bytes.count >= 4 else { return nil }
+                return Int32(bigEndian: bytes.load(as: Int32.self))
+            }
+        case 0: // Pair (for trkn, disk)
+            guard payload.count >= 8 else { return nil }
+            return payload.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> [Int]? in
+                guard bytes.count >= 8 else { return nil }
+                let a = UInt16(bigEndian: bytes.load(fromByteOffset: 2, as: UInt16.self))
+                let b = UInt16(bigEndian: bytes.load(fromByteOffset: 4, as: UInt16.self))
+                return [Int(a), Int(b)]
+            }
+        case 13, 14: // JPEG/PNG image data
+            guard !payload.isEmpty else { return nil }
+            return payload
+        default:
+            // Unknown type, try to parse as string as fallback
+            guard !payload.isEmpty else { return nil }
+            return String(data: payload, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
 }
 
-private extension UInt32 {
+extension UInt32 {
     var bigEndianData: Data {
         var be = self.bigEndian
         return Data(bytes: &be, count: MemoryLayout<UInt32>.size)
     }
 }
 
-private extension UInt16 {
+extension UInt16 {
     var bigEndianData: Data {
         var be = self.bigEndian
         return Data(bytes: &be, count: MemoryLayout<UInt16>.size)

@@ -3,6 +3,7 @@
 ## Requirements
 - macOS 12+; Swift 5.9+
 - API keys: TPDB (adult), TMDB, TVDB
+- Optional dependencies: FFmpeg (for advanced codec support and conversion), Tesseract (for bitmap subtitle OCR)
 
 ## Build & Test
 ```bash

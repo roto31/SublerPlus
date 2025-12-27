@@ -6,7 +6,11 @@ This document provides a comprehensive history of changes, features, and improve
 
 ### Quick Navigation
 
-- [Version 0.2.0-beta1](#version-020-beta1) - Latest beta release
+- [Version 0.3.0b](#version-030b) - Latest beta release
+- [Version 0.2.3b](#version-023b)
+- [Version 0.2.2b](#version-022b)
+- [Version 0.2.1b](#version-021b)
+- [Version 0.2.0-beta1](#version-020-beta1)
 - [Version 0.1.16b](#version-0116b)
 - [Version 0.1.15b](#version-0115b)
 - [Version 0.1.14b](#version-0114b)
@@ -24,6 +28,196 @@ This document provides a comprehensive history of changes, features, and improve
 - [Version 0.1.2b](#version-012b)
 - [Version 0.1.1b](#version-011b)
 - [Version 0.1.0b](#version-010b) - Initial beta release
+
+---
+
+## Version 0.3.0b
+
+**Release Date:** December 2024
+
+### Major Features
+
+#### Drag-and-Drop Metadata Search and Apply (New Feature)
+- **File Drop Support**: Drag and drop media files directly onto the Advanced Search pane
+- **Automatic Metadata Extraction**: Automatically reads and displays existing metadata from dropped files
+- **Sidebar Metadata Display**: New resizable sidebar showing:
+  - File name and artwork
+  - Title, studio, year, performers
+  - Synopsis (if available)
+  - TV show information (show, season, episode)
+- **Auto-Populate Search Fields**: Automatically populates search fields from file metadata (preserves user input)
+- **Enhanced Search Results**: Selectable results list with detailed metadata preview
+- **Result Details View**: Full metadata display for selected search results including:
+  - Title, year, studio, rating
+  - Short and long descriptions
+  - Performers and directors
+  - TV show details
+- **Apply Workflow**: Confirmation dialog before applying metadata, then automatic artwork picker
+- **Artwork Integration**: Seamless artwork selection after metadata application
+- **Visual Feedback**: Drag-and-drop visual indicators and loading states
+
+#### TV Show Metadata Extraction from MP4 Atoms (Enhancement)
+- **Direct Atom Parsing**: Reads TV show metadata directly from MP4 atoms (tvsh, tvsn, tves, tven)
+- **Rating Extraction**: Extracts content rating (rtng) from MP4 atoms
+- **Comprehensive Metadata Reading**: Enhanced `readFullMetadata` method that combines:
+  - AVFoundation metadata (title, synopsis, studio, etc.)
+  - MP4 atom metadata (TV show info, rating, track/disc numbers, etc.)
+- **Atom Codec Enhancement**: New `readIlst` method in AtomCodec for parsing MP4 metadata atoms
+- **Data Atom Parser**: Supports multiple data types:
+  - UTF-8 strings (tvsh, ©nam, etc.)
+  - Signed integers (tvsn, tves, rtng, etc.)
+  - Pairs (trkn, disk)
+  - Image data (covr)
+- **Robust Error Handling**: Graceful fallback to AVFoundation if atom parsing fails
+- **Edge Case Handling**: Comprehensive bounds checking and malformed atom handling
+
+### Technical Improvements
+
+- **AtomCodec.readIlst**: New method for reading and parsing ilst atoms from MP4 files
+- **AtomCodec.parseDataAtom**: Enhanced data atom parser with type-specific handling
+- **MetadataManager.readFullMetadata**: Enhanced to extract metadata from both AVFoundation and MP4 atoms
+- **ViewModels.loadMetadataFromFile**: New method for loading metadata from dropped files
+- **AdvancedSearchView**: Complete UI overhaul with drag-drop, sidebar, and enhanced results display
+- **Error Handling**: Comprehensive error handling for unsupported files, network errors, and edge cases
+
+### Bug Fixes
+
+- Fixed compilation errors related to non-existent AVMetadataIdentifier constants
+- Improved metadata extraction reliability
+- Enhanced file type validation
+- Better error messages for unsupported file types
+
+### Documentation
+
+- Updated user guide with drag-and-drop feature documentation
+- Enhanced technical documentation with atom parsing details
+- Added troubleshooting sections for common issues
+
+---
+
+## Version 0.2.3b
+
+**Release Date:** December 2024
+
+### Major Features
+
+#### Complete Video Codec Support (Phase 13)
+- **Extended Codec Detection**: Added support for legacy and advanced video codecs:
+  - MPEG-1 Video (mp1v)
+  - MPEG-2 Video (mp2v)
+  - Theora (XiTh)
+  - DV variants (dvc, dvcp, dv5n, dv5p, dvhp, dvhq, dvh6, dvh5, dvh3, dvh2)
+  - ProRes variants (ap4h, apch, apcn, apcs, apco, aprn)
+  - XAVC Long GOP (xalg)
+- **FourCC Code Mapping**: Enhanced `FFmpegCodecDetector` with comprehensive FFmpeg codec name to FourCC mapping
+- **Passthrough Support**: All detected codecs now support passthrough muxing
+- **Codec Validation**: Added codec-specific validation in muxing pipeline
+
+#### Complete Audio Codec Support & MLP Conversion (Phase 14)
+- **MLP Support**: Added Meridian Lossless Packing (MLP) codec support
+- **MLP→AC3 Conversion**: Implemented automatic MLP to AC3 conversion via FFmpeg for compatibility
+- **Enhanced Audio Detection**: Verified and enhanced detection for all audio codecs:
+  - ALAC, E-AC3, DTS, Opus, Vorbis, FLAC, TrueHD, MPEG Layer 1/2/3, Linear PCM
+- **Audio Conversion Engine**: Improved audio conversion with better edge case handling
+
+#### FairPlay Subtitle & Closed Caption Support (Phase 15)
+- **FairPlay Detection**: Added detection for FairPlay-encrypted subtitles (drmt codec)
+- **FairPlay Closed Captions**: Added detection for FairPlay CEA-608 closed captions (p608 codec)
+- **FairPlay Handlers**: Created `FairPlaySubtitleHandler` and `FairPlayCCHandler` for proper handling
+- **User Messaging**: Appropriate error messages for FairPlay-protected content (passthrough only)
+- **UI Indicators**: Added UI indicators for FairPlay-protected tracks
+
+#### Complete ATSC Closed Caption Implementation (Phase 16)
+- **ATSC Extraction**: Full implementation of ATSC caption extraction from transport streams (TS/M2TS files)
+- **ATSC→TX3G Conversion**: Complete conversion pipeline from ATSC format to TX3G samples
+- **Format Detection**: Enhanced format detection for TS, M2TS, and MTS files
+- **Alternative Extraction**: Multiple extraction methods for maximum compatibility
+
+#### Advanced Dolby Vision RPU Handling (Phase 17)
+- **RPU Parsing**: Complete parsing of Dolby Vision Reference Processing Unit (RPU) data structure
+- **Metadata Extraction**: Extract Dolby Vision metadata (profile, level, dynamic metadata) from dvcC, dvvC, and dvwC atoms
+- **Enhancement Layer Support**: Full support for Dolby Vision enhancement layer (EL) and base layer (BL) tracks
+- **Track Grouping**: Support for Dolby Vision track grouping to maintain proper relationships
+- **RPU Preservation**: Preserve RPU data in sample buffers during muxing operations
+
+#### Explicit HDR Metadata Injection (Phase 18)
+- **HDR Metadata Creation**: Create HDR10 and HLG metadata from parameters
+- **Metadata Injection**: Inject Mastering Display Color Volume and Content Light Level Info metadata
+- **Format Description Enhancement**: Enhanced CMFormatDescription creation with HDR extensions
+- **HDR10 Support**: Full support for HDR10 metadata with maxCLL and maxFALL parameters
+- **HLG Support**: Support for Hybrid Log-Gamma (HLG) metadata injection
+
+#### Preset Import/Export (Phase 19)
+- **Preset Export**: Export presets to JSON or PLIST format
+- **Preset Import**: Import presets from JSON or PLIST files with validation
+- **Conflict Resolution**: Three conflict resolution strategies:
+  - Skip conflicting presets
+  - Overwrite existing presets
+  - Rename imported presets automatically
+- **Preset Validation**: Comprehensive validation of imported preset structure
+- **Import Results**: Detailed import results showing added, updated, skipped, and invalid presets
+
+#### Enhanced Queue Statistics & Advanced Editing (Phase 20)
+- **Queue Statistics**: Comprehensive statistics tracking:
+  - Total jobs processed
+  - Success and failure counts
+  - Average processing time per job
+  - Current queue size and running count
+  - Estimated time remaining
+- **Queue Reordering**: Drag-and-drop reordering of queue items
+- **Job Editing**: Edit job settings and actions before processing
+- **Bulk Modification**: Bulk modify multiple queue items simultaneously
+- **Job Duplication**: Duplicate existing queue items
+- **Queue Filtering**: Filter queue by status or URL pattern
+- **Queue Sorting**: Multiple sort options (URL ascending/descending, status, added first/last)
+
+### Technical Improvements
+
+- **FFmpegCodecDetector**: Enhanced with comprehensive codec-to-FourCC mapping for all supported formats
+- **ContainerImporter**: Improved codec detection with FourCC code support
+- **AudioConverter**: Added MLP conversion support and improved conversion pipeline
+- **ClosedCaptionHandler**: Complete ATSC support with multiple extraction methods
+- **DolbyVisionHandler**: Full RPU parsing and enhancement layer preservation
+- **HDRMetadataHandler**: Explicit HDR metadata injection capabilities
+- **PresetManager**: Import/export functionality with conflict resolution
+- **JobQueue**: Statistics tracking and advanced editing capabilities
+
+### Bug Fixes
+
+- Fixed codec detection for legacy formats
+- Improved passthrough muxing for unsupported codecs
+- Enhanced error handling for FairPlay-protected content
+- Fixed ATSC caption extraction edge cases
+- Improved Dolby Vision metadata preservation
+
+### Documentation
+
+- Updated technical documentation with new codec support
+- Enhanced user guide with new features
+- Added documentation for preset import/export
+- Updated queue operations documentation
+
+---
+
+## Version 0.2.2b
+
+**Release Date:** December 2024
+
+### Features
+
+- Additional bug fixes and stability improvements
+- Performance optimizations
+
+---
+
+## Version 0.2.1b
+
+**Release Date:** December 2024
+
+### Features
+
+- Additional bug fixes and stability improvements
+- Performance optimizations
 
 ---
 

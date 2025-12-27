@@ -27,6 +27,14 @@ public final class AppViewModel: ObservableObject {
     @Published public var providerPreference: ProviderPreference = .balanced
     @Published public var watchFolders: [URL] = []
     @Published public var defaultSubtitleLanguage: String = "eng"
+    @Published public var droppedFile: URL?
+    @Published public var droppedFileMetadata: MetadataDetails?
+    @Published public var droppedFileArtworkURL: URL?
+    @Published public var selectedSearchResult: MetadataResult?
+    @Published public var selectedResultDetails: MetadataDetails?
+    @Published public var pendingArtworkURL: URL?
+    @Published public var showArtworkPicker: Bool = false
+    @Published public var showApplyConfirmation: Bool = false
 
     private let settingsStore: SettingsStore
     private let pipeline: MetadataPipeline
@@ -43,6 +51,14 @@ public final class AppViewModel: ObservableObject {
     private var artworkOverrides: [URL: URL] = [:]
     private var fileTracks: [URL: [MediaTrack]] = [:]
     private var fileChapters: [URL: [Chapter]] = [:]
+    
+    public func getTracks(for url: URL) -> [MediaTrack]? {
+        fileTracks[url]
+    }
+    
+    public func getChapters(for url: URL) -> [Chapter]? {
+        fileChapters[url]
+    }
     private let cacheURL: URL = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let folder = dir.appendingPathComponent("SublerPlus", isDirectory: true)
@@ -173,6 +189,219 @@ public final class AppViewModel: ObservableObject {
         guard !query.isEmpty else { return }
         let yearHint = Int(searchYearFrom) ?? Int(searchYearTo)
         Task { await runSearch(query: query, yearHint: yearHint) }
+    }
+    
+    public func loadMetadataFromFile(_ url: URL) async {
+        // Validate file exists
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            await MainActor.run {
+                self.status = "File not found: \(url.lastPathComponent)"
+            }
+            await statusStream.add("File not found: \(url.path)")
+            return
+        }
+        
+        // Validate file type
+        let ext = url.pathExtension.lowercased()
+        guard ["mp4", "m4v", "m4a", "mov", "mkv"].contains(ext) else {
+            await MainActor.run {
+                self.status = "Unsupported file type: \(ext). Supported: MP4, M4V, M4A, MOV, MKV"
+            }
+            await statusStream.add("Unsupported file type: \(ext)")
+            return
+        }
+        
+        await MainActor.run {
+            self.status = "Reading metadata from \(url.lastPathComponent)..."
+        }
+        
+        let mp4Handler = SublerMP4Handler()
+        
+        do {
+            // Read full metadata
+            let metadata = try mp4Handler.readFullMetadata(at: url)
+            
+            // Extract artwork (best effort - don't fail if artwork extraction fails)
+            let artworkURL = try? mp4Handler.extractArtwork(from: url)
+            
+            await MainActor.run {
+                self.droppedFile = url
+                self.droppedFileMetadata = metadata
+                self.droppedFileArtworkURL = artworkURL
+                
+                // Auto-populate search fields (only if they're empty to preserve user input)
+                if let metadata = metadata {
+                    if self.searchTitle.isEmpty {
+                        self.searchTitle = metadata.title
+                    }
+                    if self.searchStudio.isEmpty, let studio = metadata.studio {
+                        self.searchStudio = studio
+                    }
+                    if self.searchYearFrom.isEmpty || self.searchYearTo.isEmpty,
+                       let releaseDate = metadata.releaseDate {
+                        let year = Calendar.current.component(.year, from: releaseDate)
+                        if self.searchYearFrom.isEmpty {
+                            self.searchYearFrom = String(year)
+                        }
+                        if self.searchYearTo.isEmpty {
+                            self.searchYearTo = String(year)
+                        }
+                    }
+                    if self.searchActors.isEmpty, !metadata.performers.isEmpty {
+                        self.searchActors = metadata.performers.joined(separator: ", ")
+                    }
+                }
+                
+                self.status = "Metadata loaded from \(url.lastPathComponent)"
+            }
+            
+            await statusStream.add("Loaded metadata from \(url.lastPathComponent)")
+        } catch {
+            await MainActor.run {
+                self.status = "Failed to read metadata: \(error.localizedDescription)"
+                // Clear dropped file state on error
+                self.droppedFile = nil
+                self.droppedFileMetadata = nil
+                self.droppedFileArtworkURL = nil
+            }
+            await statusStream.add("Failed to read metadata from \(url.lastPathComponent): \(error.localizedDescription)")
+        }
+    }
+    
+    public func fetchResultDetails(for result: MetadataResult) async {
+        await MainActor.run {
+            self.status = "Fetching details for \(result.title)..."
+        }
+        
+        // Find the provider that returned this result
+        let providerID = result.source ?? ""
+        let provider = searchProviders.first { $0.id == providerID } ?? searchProviders.first
+        
+        guard let provider = provider else {
+            await MainActor.run {
+                self.status = "No provider available to fetch details"
+            }
+            await statusStream.add("Failed to fetch details: No provider available")
+            return
+        }
+        
+        do {
+            let details = try await provider.fetchDetails(for: result.id)
+            await MainActor.run {
+                self.selectedResultDetails = details
+                self.status = "Details loaded for \(result.title)"
+            }
+            await statusStream.add("Loaded details for \(result.title)")
+        } catch {
+            await MainActor.run {
+                self.status = "Failed to fetch details: \(error.localizedDescription)"
+            }
+            await statusStream.add("Failed to fetch details for \(result.title): \(error.localizedDescription)")
+        }
+    }
+    
+    public func applySelectedMetadata(to file: URL) async {
+        // Validate file exists
+        guard FileManager.default.fileExists(atPath: file.path) else {
+            await MainActor.run {
+                self.status = "File not found: \(file.lastPathComponent)"
+            }
+            await statusStream.add("File not found: \(file.path)")
+            return
+        }
+        
+        guard let details = selectedResultDetails else {
+            await MainActor.run {
+                self.status = "No metadata selected to apply"
+            }
+            await statusStream.add("No metadata selected to apply")
+            return
+        }
+        
+        await MainActor.run {
+            self.status = "Applying metadata to \(file.lastPathComponent)..."
+        }
+        
+        do {
+            try await pipeline.writeResolved(details: details, to: file)
+            await MainActor.run {
+                self.status = "Metadata applied successfully"
+                // Trigger artwork picker display
+                self.showArtworkPicker = true
+            }
+            await statusStream.add("Metadata applied to \(file.lastPathComponent)")
+        } catch {
+            await MainActor.run {
+                self.status = "Failed to apply metadata: \(error.localizedDescription)"
+            }
+            await statusStream.add("Failed to apply metadata to \(file.lastPathComponent): \(error.localizedDescription)")
+        }
+    }
+    
+    public func applyArtwork(to file: URL, artworkURL: URL) async {
+        // Validate file exists
+        guard FileManager.default.fileExists(atPath: file.path) else {
+            await MainActor.run {
+                self.status = "File not found: \(file.lastPathComponent)"
+            }
+            await statusStream.add("File not found: \(file.path)")
+            return
+        }
+        
+        // Validate artwork URL exists
+        guard FileManager.default.fileExists(atPath: artworkURL.path) else {
+            await MainActor.run {
+                self.status = "Artwork file not found"
+            }
+            await statusStream.add("Artwork file not found: \(artworkURL.path)")
+            return
+        }
+        
+        await MainActor.run {
+            self.status = "Applying artwork to \(file.lastPathComponent)..."
+        }
+        
+        // Read artwork data
+        guard let artworkData = try? Data(contentsOf: artworkURL) else {
+            await MainActor.run {
+                self.status = "Failed to read artwork data"
+            }
+            await statusStream.add("Failed to read artwork data from \(artworkURL.path)")
+            return
+        }
+        
+            // Apply artwork using existing method
+        do {
+            let mp4Handler = SublerMP4Handler()
+            
+            // Read existing metadata or use selected result details
+            let metadata: MetadataDetails
+            if let existingMetadata = try? mp4Handler.readFullMetadata(at: file) {
+                metadata = existingMetadata
+            } else if let selectedDetails = selectedResultDetails {
+                metadata = selectedDetails
+            } else {
+                metadata = MetadataDetails(id: file.absoluteString, title: file.deletingPathExtension().lastPathComponent)
+            }
+            
+            // Create tags with artwork
+            let tags = mp4TagUpdates(from: metadata, coverData: artworkData)
+            
+            // Write metadata with artwork
+            try mp4Handler.writeMetadata(metadata, tags: tags, to: file)
+            
+            await MainActor.run {
+                self.status = "Artwork applied successfully"
+                // Clear artwork picker state
+                self.showArtworkPicker = false
+            }
+            await statusStream.add("Artwork applied to \(file.lastPathComponent)")
+        } catch {
+            await MainActor.run {
+                self.status = "Failed to apply artwork: \(error.localizedDescription)"
+            }
+            await statusStream.add("Failed to apply artwork to \(file.lastPathComponent): \(error.localizedDescription)")
+        }
     }
 
     public func enrich(file url: URL) {
@@ -657,12 +886,104 @@ public final class AppViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Muxing
+    
+    @Published public var muxingProgress: Double = 0.0
+    @Published public var isMuxing: Bool = false
+    
+    public func remuxFile(_ url: URL, outputURL: URL? = nil) {
+        Task {
+            await MainActor.run {
+                isMuxing = true
+                muxingProgress = 0.0
+                status = "Remuxing \(url.lastPathComponent)..."
+            }
+            
+            let output = outputURL ?? url.deletingLastPathComponent().appendingPathComponent("\(url.deletingPathExtension().lastPathComponent)_remuxed.mp4")
+            
+            do {
+                try await Muxer.remux(
+                    sourceURL: url,
+                    outputURL: output,
+                    progressHandler: { progress in
+                        Task { @MainActor in
+                            self.muxingProgress = progress
+                        }
+                    }
+                )
+                
+                await MainActor.run {
+                    isMuxing = false
+                    muxingProgress = 1.0
+                    status = "Remuxing complete: \(output.lastPathComponent)"
+                }
+            } catch {
+                await MainActor.run {
+                    isMuxing = false
+                    status = "Remuxing failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+    
+    public func muxTracks(_ tracks: [TrackSelection], outputURL: URL) {
+        Task {
+            await MainActor.run {
+                isMuxing = true
+                muxingProgress = 0.0
+                status = "Muxing tracks..."
+            }
+            
+            do {
+                try await Muxer.mux(
+                    tracks: tracks,
+                    outputURL: outputURL,
+                    progressHandler: { progress in
+                        Task { @MainActor in
+                            self.muxingProgress = progress
+                        }
+                    }
+                )
+                
+                await MainActor.run {
+                    isMuxing = false
+                    muxingProgress = 1.0
+                    status = "Muxing complete: \(outputURL.lastPathComponent)"
+                }
+            } catch {
+                await MainActor.run {
+                    isMuxing = false
+                    status = "Muxing failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
     // MARK: - Search
 
     private func runSearch(query: String, yearHint: Int?) async {
-        status = "Searching..."
+        await MainActor.run {
+            self.status = "Searching..."
+        }
+        
         let includeAdult = adultEnabled
         let providers = searchProviders.filter { includeAdult || !$0.isAdult }
+
+        // Check if any providers are available after filtering
+        guard !providers.isEmpty else {
+            await MainActor.run {
+                var message = "No search providers available."
+                if !adultEnabled && searchProviders.contains(where: { $0.isAdult }) {
+                    message += " Enable adult content in Settings or add API keys (TMDB/TVDB) to search."
+                } else if searchProviders.isEmpty {
+                    message += " Please add API keys (TMDB/TVDB) in Settings to enable search."
+                }
+                self.status = message
+                self.searchResults = []
+            }
+            await statusStream.add("Search failed: No providers available")
+            return
+        }
 
         let tasks = providers.map { provider in
             Task { () -> [MetadataResult] in
@@ -693,7 +1014,7 @@ public final class AppViewModel: ObservableObject {
 
         await MainActor.run {
             self.searchResults = sorted
-            self.status = sorted.isEmpty ? "No results" : "Found \(sorted.count) result\(sorted.count == 1 ? "" : "s")"
+            self.status = sorted.isEmpty ? "No results found" : "Found \(sorted.count) result\(sorted.count == 1 ? "" : "s")"
         }
     }
 
@@ -791,6 +1112,11 @@ public final class SettingsViewModel: ObservableObject {
     @Published public var watchFolders: [URL] = []
     @Published public var openSubtitlesKey: String = ""
     @Published public var defaultSubtitleLanguage: String = "eng"
+    @Published public var autoSubtitleLookup: Bool = false
+    @Published public var iTunesCountry: String = "us"
+    @Published public var preferHighResArtwork: Bool = true
+    @Published public var enableMusicMetadata: Bool = true
+    @Published public var musixmatchKey: String = ""
 
     private let settingsStore: SettingsStore
     private let apiKeys: APIKeyManager
@@ -822,6 +1148,11 @@ public final class SettingsViewModel: ObservableObject {
         watchFolders = settings.watchFolders.compactMap { URL(string: $0) ?? URL(fileURLWithPath: $0) }
         openSubtitlesKey = apiKeys.loadOpenSubtitlesKey() ?? ""
         defaultSubtitleLanguage = settings.defaultSubtitleLanguage
+        autoSubtitleLookup = settings.autoSubtitleLookup
+        iTunesCountry = settings.iTunesCountry
+        preferHighResArtwork = settings.preferHighResArtwork
+        enableMusicMetadata = settings.enableMusicMetadata
+        musixmatchKey = apiKeys.loadMusixmatchKey() ?? ""
     }
 
     public func save() {
@@ -837,12 +1168,17 @@ public final class SettingsViewModel: ObservableObject {
                 settings.tvNamingTemplate = tvNamingTemplate
                 settings.watchFolders = watchFolders.map { $0.path }
                 settings.defaultSubtitleLanguage = defaultSubtitleLanguage
+                settings.autoSubtitleLookup = autoSubtitleLookup
+                settings.iTunesCountry = iTunesCountry
+                settings.preferHighResArtwork = preferHighResArtwork
+                settings.enableMusicMetadata = enableMusicMetadata
             }
             pipeline.retainOriginals = retainOriginals
             pipeline.outputDirectory = outputDirectory
             pipeline.generateNFO = generateNFO
             pipeline.nfoOutputDirectory = nfoOutputDirectory
             pipeline.tvNamingTemplate = tvNamingTemplate
+            pipeline.autoSubtitleLookup = autoSubtitleLookup
             apiKeys.saveTPDBKey(tpdbKey)
             apiKeys.saveTMDBKey(tmdbKey)
             apiKeys.saveTVDBKey(tvdbKey)
@@ -851,6 +1187,9 @@ public final class SettingsViewModel: ObservableObject {
             }
             if !openSubtitlesKey.isEmpty {
                 apiKeys.saveOpenSubtitlesKey(openSubtitlesKey)
+            }
+            if !musixmatchKey.isEmpty {
+                apiKeys.saveMusixmatchKey(musixmatchKey)
             }
         }
     }

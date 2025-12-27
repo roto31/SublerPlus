@@ -9,12 +9,12 @@ set -euo pipefail
 #   ./scripts/build.sh --skip-tests
 #
 # Versioning (semantic versioning):
-#   BASE_VERSION     Base version (default: 0.2.0)
+#   BASE_VERSION     Base version (default: 0.3.0)
 #   PRERELEASE       Prerelease tag (default: beta)
-#   VERSION          Full version override (e.g., 0.2.0-beta1, 1.0.0)
+#   VERSION          Full version override (e.g., 0.3.0-beta1, 1.0.0)
 #                     If not set, auto-increments beta number
 #   Examples:
-#     BASE_VERSION=0.2.0 PRERELEASE=beta ./scripts/build.sh --release
+#     BASE_VERSION=0.3.0 PRERELEASE=beta ./scripts/build.sh --release
 #     VERSION=1.0.0 ./scripts/build.sh --release
 #
 # Env (optional):
@@ -32,7 +32,7 @@ run_tests=1
 security=0
 # Semantic versioning: MAJOR.MINOR.PATCH[-PRERELEASE]
 # Examples: 0.2.0-beta1, 0.2.0-beta2, 1.0.0
-BASE_VERSION="${BASE_VERSION:-0.2.0}"
+BASE_VERSION="${BASE_VERSION:-0.3.0}"
 PRERELEASE="${PRERELEASE:-beta}"
 PRUNE_BUILDS_DAYS="${PRUNE_BUILDS_DAYS:-7}"
 
@@ -80,22 +80,40 @@ if [[ "$mode" == "release" ]]; then
     build_root="build/App builds"
     mkdir -p "$build_root"
     
-    # Find highest existing beta number for this base version
-    highest_beta=0
+    # Find highest existing patch version for 0.2.xb schema
+    # Schema: 0.2.0b, 0.2.1b, 0.2.2b, etc. (patch number = beta number)
+    highest_patch=-1
+    major_minor="${BASE_VERSION%.*}"  # e.g., "0.2"
+    
+    # Check for format: 0.2.Xb (e.g., 0.2.0b, 0.2.1b, 0.2.2b)
+    for dir in "$build_root"/SublerPlus-${major_minor}.*b*; do
+      if [[ -d "$dir" ]]; then
+        # Extract patch number from version like SublerPlus-0.2.3b -> 3
+        basename_dir=$(basename "$dir")
+        if [[ "$basename_dir" =~ SublerPlus-${major_minor}\.([0-9]+)b ]]; then
+          patch="${BASH_REMATCH[1]}"
+          if [[ "$patch" =~ ^[0-9]+$ ]] && [[ "$patch" -gt "$highest_patch" ]]; then
+            highest_patch=$patch
+          fi
+        fi
+      fi
+    done
+    
+    # Check for legacy format: BASE_VERSION-betaN (e.g., 0.2.0-beta1)
     if ls "$build_root"/SublerPlus-${BASE_VERSION}-${PRERELEASE}* 2>/dev/null | grep -q .; then
       for dir in "$build_root"/SublerPlus-${BASE_VERSION}-${PRERELEASE}*; do
         if [[ -d "$dir" ]]; then
           beta_num=$(basename "$dir" | sed "s/SublerPlus-${BASE_VERSION}-${PRERELEASE}//" | sed 's/\/$//')
-          if [[ "$beta_num" =~ ^[0-9]+$ ]] && [[ "$beta_num" -gt "$highest_beta" ]]; then
-            highest_beta=$beta_num
+          if [[ "$beta_num" =~ ^[0-9]+$ ]] && [[ "$beta_num" -gt "$highest_patch" ]]; then
+            highest_patch=$beta_num
           fi
         fi
       done
     fi
     
-    # Increment beta number
-    next_beta=$((highest_beta + 1))
-    VERSION="${BASE_VERSION}-${PRERELEASE}${next_beta}"
+    # Increment patch version (start from 0 if no builds found)
+    next_patch=$((highest_patch + 1))
+    VERSION="${major_minor}.${next_patch}b"
   fi
   
   echo "==> Packaging app bundle (SublerPlus.app)"
@@ -153,6 +171,12 @@ EOF
 EOF
   fi
   
+  # AppleScript support
+  cat >> "$bundle_dir/Contents/Info.plist" <<EOF
+  <key>NSAppleScriptEnabled</key><true/>
+  <key>OSAScriptingDefinition</key><string>SublerPlus.sdef</string>
+EOF
+  
   cat >> "$bundle_dir/Contents/Info.plist" <<EOF
 </dict>
 </plist>
@@ -165,6 +189,12 @@ EOF
   if [[ -f "App/SublerPlus.entitlements" ]]; then
     cp "App/SublerPlus.entitlements" "$bundle_dir/Contents/SublerPlus.entitlements"
     echo "Entitlements file copied"
+  fi
+  
+  # Copy AppleScript dictionary (.sdef file)
+  if [[ -f "Resources/SublerPlus.sdef" ]]; then
+    cp "Resources/SublerPlus.sdef" "$bundle_dir/Contents/Resources/SublerPlus.sdef"
+    echo "AppleScript dictionary copied"
   fi
   
   # Code sign with entitlements (if codesign is available)
