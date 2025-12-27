@@ -12,8 +12,20 @@
 
 ## Provider failures
 - Inspect Console.app logs under subsystem `com.sublerplus.app` categories `network`/`providers`.
-- Ensure TPDB/TMDB/TVDB keys are set in Settings; rotate keys if stale.
+- Ensure TPDB/TMDB/TVDB/OpenSubtitles keys are set in Settings; rotate keys if stale.
 - Network retries and circuit breaker will pause after repeated 5xx/429.
+
+## Subtitle issues
+- Verify OpenSubtitles API key is configured in Settings (requires RapidAPI subscription).
+- Check that default language is set correctly using ISO 639-2 codes (e.g., `eng`, `spa`).
+- Subtitle search results depend on OpenSubtitles database coverage; not all titles may have subtitles.
+- Review logs for subtitle download failures or API quota issues.
+
+## Watch folder not processing files
+- Ensure watch folders are configured in Settings with correct permissions.
+- New files should be MP4/M4V/MOV to be auto-detected.
+- Check Activity pane for enqueue events when new files are detected.
+- Verify folder monitor is active (restart app if needed).
 
 ## NFO/retained copies
 - If NFO missing, confirm “Generate NFO sidecar” is enabled and target folder exists.
