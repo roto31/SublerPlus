@@ -2,8 +2,8 @@
 
 ## Threat Model (local-only)
 - WebUI bound to `127.0.0.1:8080`; no remote exposure expected.
-- Secrets: TPDB/TMDB/TVDB keys, optional WebUI token, Keychain-backed.
-- Assets: local media paths, metadata lookups, logs (scrubbed).
+- Secrets: TPDB/TMDB/TVDB/OpenSubtitles keys, optional WebUI token, Keychain-backed.
+- Assets: local media paths, metadata lookups, subtitle downloads, logs (scrubbed).
 
 ## Controls
 - Auth: optional `X-Auth-Token` for `/api/*`; prompt in app when missing.
@@ -25,8 +25,8 @@
 # Security Overview
 
 ## Threat Model (summary)
-- **Assets:** API keys (TPDB/TMDB/TVDB), media files, artwork cache, ambiguity cache, logs/status.
-- **Trust boundaries:** Localhost WebUI/API (Swifter), filesystem (user-selected files), outbound provider HTTPS calls.
+- **Assets:** API keys (TPDB/TMDB/TVDB/OpenSubtitles), media files, artwork cache, ambiguity cache, logs/status.
+- **Trust boundaries:** Localhost WebUI/API (Swifter), filesystem (user-selected files, watch folders), outbound provider HTTPS calls.
 - **Adversaries:** Local untrusted users/processes on the same machine; network attackers to providers (MITM mitigated by TLS); malicious media names/paths.
 
 ## Hardening Baselines
@@ -56,7 +56,7 @@
 - Verify entitlements against Apple HIG and store policies before distribution.
 
 ### Sandbox/Entitlements Plan
-- App Sandbox: enable; allow **Outgoing Network**; restrict domains via ATS `NSExceptionDomains` to `api.theporndb.net`, `api.themoviedb.org`, `api4.thetvdb.com`, and `image.tmdb.org`. Deny inbound.
+- App Sandbox: enable; allow **Outgoing Network**; restrict domains via ATS `NSExceptionDomains` to `api.theporndb.net`, `api.themoviedb.org`, `api4.thetvdb.com`, `image.tmdb.org`, and `rapidapi.com` (for OpenSubtitles). Deny inbound.
 - File access: rely on `NSOpenPanel`/`NSSavePanel` security-scoped bookmarks for user-selected files/folders; no broad file-read/write entitlements. Keep temp writes inside app container or selected output directory.
 - Keychain: continue using generic password items; no access groups required. Add `com.apple.security.personal-information.keychain` only if sandbox requires explicit entitlement for generic passwords.
 - Web server: keep bound to `127.0.0.1`; no Bonjour/remote; no additional network listeners.
