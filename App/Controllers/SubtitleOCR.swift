@@ -184,7 +184,7 @@ public final class SubtitleOCR: @unchecked Sendable {
     ) async throws -> [TX3GSample] {
         // FFmpeg can handle VobSub conversion
         // Create a temporary video file with embedded VobSub for FFmpeg to process
-        let tempSRT = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).srt")
+        _ = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).srt")
         
         // Use FFmpeg to convert VobSub to SRT
         // Note: This requires the VobSub to be embedded in a video or container

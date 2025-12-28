@@ -177,7 +177,7 @@ public final class TX3GEncoder: @unchecked Sendable {
         // For now, return placeholder data structure
         // Full implementation would be integrated with AtomCodec
         
-        var trackData = Data()
+        let trackData = Data()
         
         // In a full implementation, this would create:
         // - tkhd atom (track header)

@@ -74,7 +74,7 @@ public final class AppleScriptBridge: NSObject {
 @objc public class QueueStatusScriptCommand: SublerPlusScriptCommand {
     
     public override func performDefaultImplementation() -> Any? {
-        guard let jobQueue = AppleScriptBridge.shared.jobQueue else {
+        guard AppleScriptBridge.shared.jobQueue != nil else {
             return 0 // idle
         }
         

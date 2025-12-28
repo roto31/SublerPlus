@@ -1,6 +1,6 @@
 import Foundation
 
-public struct MetadataResult: Sendable, Identifiable, Codable {
+public struct MetadataResult: Sendable, Identifiable, Codable, Hashable {
     public let id: String
     public let title: String
     public let score: Double?

@@ -36,6 +36,7 @@ public final class AppViewModel: ObservableObject {
     @Published public var showArtworkPicker: Bool = false
     @Published public var showApplyConfirmation: Bool = false
 
+    private var currentFetchTask: Task<Void, Never>?
     private let settingsStore: SettingsStore
     private let pipeline: MetadataPipeline
     private let adultProvider: MetadataProvider
@@ -173,21 +174,34 @@ public final class AppViewModel: ObservableObject {
     }
 
     public func runAdvancedSearch() {
+        // Clear previous search state
+        searchResults = []
+        selectedSearchResult = nil
+        selectedResultDetails = nil
+        status = "Preparing search..."
+        
+        // Build query from search fields (text only - year is passed as hint separately)
         var components: [String] = []
         if !searchTitle.isEmpty { components.append(searchTitle) }
         if !searchStudio.isEmpty { components.append(searchStudio) }
         if !searchActors.isEmpty { components.append(searchActors) }
         if !searchDirectors.isEmpty { components.append(searchDirectors) }
         if !searchAirDate.isEmpty { components.append(searchAirDate) }
-        if let from = Int(searchYearFrom) {
-            components.append("year:\(from)")
+        
+        // Build query string
+        let query = components.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Validate query is not empty
+        guard !query.isEmpty else {
+            status = "Please enter at least one search field"
+            return
         }
-        if let to = Int(searchYearTo) {
-            components.append("year:\(to)")
-        }
-        let query = components.joined(separator: " ")
-        guard !query.isEmpty else { return }
+        
+        // Get year hint (use from year if available, otherwise to year)
+        // Year is used for sorting/ranking results, not as part of the query string
         let yearHint = Int(searchYearFrom) ?? Int(searchYearTo)
+        
+        // Run search asynchronously
         Task { await runSearch(query: query, yearHint: yearHint) }
     }
     
@@ -269,35 +283,57 @@ public final class AppViewModel: ObservableObject {
     }
     
     public func fetchResultDetails(for result: MetadataResult) async {
-        await MainActor.run {
-            self.status = "Fetching details for \(result.title)..."
+        // Cancel any existing fetch task
+        currentFetchTask?.cancel()
+        
+        // Create new fetch task
+        currentFetchTask = Task {
+            await MainActor.run {
+                self.status = "Fetching details for \(result.title)..."
+                // Clear old details immediately
+                self.selectedResultDetails = nil
+            }
+            
+            // Find the provider that returned this result
+            let providerID = result.source ?? ""
+            let provider = searchProviders.first { $0.id == providerID } ?? searchProviders.first
+            
+            guard let provider = provider else {
+                await MainActor.run {
+                    self.status = "No provider available to fetch details"
+                }
+                await statusStream.add("Failed to fetch details: No provider available")
+                return
+            }
+            
+            do {
+                // Check cancellation before starting network request
+                try Task.checkCancellation()
+                
+                let details = try await provider.fetchDetails(for: result.id)
+                
+                // Check cancellation again before updating UI
+                try Task.checkCancellation()
+                
+                await MainActor.run {
+                    self.selectedResultDetails = details
+                    self.status = "Details loaded for \(result.title)"
+                }
+                await statusStream.add("Loaded details for \(result.title)")
+            } catch {
+                // Don't update UI if task was cancelled (Task.checkCancellation throws CancellationError)
+                if error is CancellationError {
+                    return
+                }
+                
+                await MainActor.run {
+                    self.status = "Failed to fetch details: \(error.localizedDescription)"
+                }
+                await statusStream.add("Failed to fetch details for \(result.title): \(error.localizedDescription)")
+            }
         }
         
-        // Find the provider that returned this result
-        let providerID = result.source ?? ""
-        let provider = searchProviders.first { $0.id == providerID } ?? searchProviders.first
-        
-        guard let provider = provider else {
-            await MainActor.run {
-                self.status = "No provider available to fetch details"
-            }
-            await statusStream.add("Failed to fetch details: No provider available")
-            return
-        }
-        
-        do {
-            let details = try await provider.fetchDetails(for: result.id)
-            await MainActor.run {
-                self.selectedResultDetails = details
-                self.status = "Details loaded for \(result.title)"
-            }
-            await statusStream.add("Loaded details for \(result.title)")
-        } catch {
-            await MainActor.run {
-                self.status = "Failed to fetch details: \(error.localizedDescription)"
-            }
-            await statusStream.add("Failed to fetch details for \(result.title): \(error.localizedDescription)")
-        }
+        await currentFetchTask?.value
     }
     
     public func applySelectedMetadata(to file: URL) async {
@@ -1015,6 +1051,9 @@ public final class AppViewModel: ObservableObject {
         await MainActor.run {
             self.searchResults = sorted
             self.status = sorted.isEmpty ? "No results found" : "Found \(sorted.count) result\(sorted.count == 1 ? "" : "s")"
+            // Clear selection and details when new search results arrive
+            self.selectedSearchResult = nil
+            self.selectedResultDetails = nil
         }
     }
 

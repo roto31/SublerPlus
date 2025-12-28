@@ -34,13 +34,13 @@ public final class AC3Importer: RawFormatImporter {
         // fscod (bits 6-7 of byte 4) - sample rate code
         let fscod = (bytes[4] >> 6) & 0x03
         let sampleRates: [Int] = [48000, 44100, 32000, 0]
-        let sampleRate = fscod < sampleRates.count ? sampleRates[Int(fscod)] : 48000
+        _ = fscod < sampleRates.count ? sampleRates[Int(fscod)] : 48000
         
         // frmsizecod (bits 0-5 of byte 4 and byte 5) - frame size code
-        let frmsizecod = ((Int(bytes[4]) & 0x3F) << 2) | ((Int(bytes[5]) >> 6) & 0x03)
+        _ = ((Int(bytes[4]) & 0x3F) << 2) | ((Int(bytes[5]) >> 6) & 0x03)
         
         // acmod (bits 3-5 of byte 5) - audio coding mode (channels)
-        let acmod = (bytes[5] >> 3) & 0x07
+        _ = (bytes[5] >> 3) & 0x07
         
         // Estimate bitrate from frame size
         // AC3 frame size table (simplified - full table is more complex)

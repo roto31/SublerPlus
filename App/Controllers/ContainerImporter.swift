@@ -124,7 +124,7 @@ public final class ContainerImporter: @unchecked Sendable {
             let language = try? await track.load(.languageCode)
             let bitrate = try? await track.load(.estimatedDataRate)
             let isDefault = (try? await track.load(.isEnabled)) ?? false
-            let resolution = try? await extractResolution(from: track)
+            let resolution = await extractResolution(from: track)
             let hdr = detectHDR(from: track)
             
             allTracks.append(MediaTrack(

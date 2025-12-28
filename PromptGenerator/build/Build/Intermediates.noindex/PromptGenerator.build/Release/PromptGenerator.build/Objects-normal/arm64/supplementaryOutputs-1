@@ -1,0 +1,12 @@
+{
+  "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/PromptGeneratorApp.swift" : {
+    "abi-baseline-json" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGenerator.abi.json",
+    "const-values" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGenerator-primary.swiftconstvalues",
+    "dependencies" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGenerator-primary.d",
+    "diagnostics" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGenerator-primary.dia",
+    "objc-header" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGenerator-Swift.h",
+    "swiftdoc" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGenerator.swiftdoc",
+    "swiftmodule" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGenerator.swiftmodule",
+    "swiftsourceinfo" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGenerator.swiftsourceinfo"
+  }
+}

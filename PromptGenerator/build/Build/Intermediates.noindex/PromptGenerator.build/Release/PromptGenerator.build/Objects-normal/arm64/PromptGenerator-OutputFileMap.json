@@ -1,0 +1,31 @@
+{
+  "" : {
+    "const-values" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGenerator-primary.swiftconstvalues",
+    "dependencies" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGenerator-primary.d",
+    "diagnostics" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGenerator-primary.dia",
+    "emit-module-dependencies" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGenerator-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGenerator-primary-emit-module.dia",
+    "pch" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGenerator-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGenerator-primary.swiftdeps"
+  },
+  "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/ContentView.swift" : {
+    "index-unit-output-path" : "/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/ContentView.o",
+    "llvm-bc" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/ContentView.bc",
+    "object" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/ContentView.o"
+  },
+  "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/PromptGeneratorApp.swift" : {
+    "index-unit-output-path" : "/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGeneratorApp.o",
+    "llvm-bc" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGeneratorApp.bc",
+    "object" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGeneratorApp.o"
+  },
+  "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/PromptGeneratorViewModel.swift" : {
+    "index-unit-output-path" : "/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGeneratorViewModel.o",
+    "llvm-bc" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGeneratorViewModel.bc",
+    "object" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/PromptGeneratorViewModel.o"
+  },
+  "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/WebViewWithPopupBlocking.swift" : {
+    "index-unit-output-path" : "/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/WebViewWithPopupBlocking.o",
+    "llvm-bc" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/WebViewWithPopupBlocking.bc",
+    "object" : "/Users/roto1231/Documents/XCode Projects/SublerPlus/PromptGenerator/build/Build/Intermediates.noindex/PromptGenerator.build/Release/PromptGenerator.build/Objects-normal/arm64/WebViewWithPopupBlocking.o"
+  }
+}

@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file:///localhost/System/Library/DTDs/sdef.dtd">
+<dictionary title="SublerPlus Terminology" xmlns:xi="http://www.w3.org/2001/XInclude">
+    
+    <xi:include href="file:///System/Library/ScriptingDefinitions/CocoaStandard.sdef" xpointer="xpointer(/dictionary/suite)" />
+
+    <suite name="SublerPlus Automation Suite" code="SPLS" description="Automation functions for SublerPlus.">
+        
+        <!-- Commands -->
+
+        <!-- Queue Commands -->
+        <command name="add to queue" code="SPLQAdd" description="Add file(s) to the processing queue.">
+            <cocoa class="AddToQueueScriptCommand"/>
+            <direct-parameter description="The file(s) to be added.">
+                <type type="file" list="yes"/>
+            </direct-parameter>
+        </command>
+
+        <command name="start queue and wait" code="SPLQStw" description="Start the queue and wait until its completion.">
+            <cocoa class="StartQueueAndWaitScriptCommand"/>
+        </command>
+
+        <command name="start queue" code="SPLQSta" description="Start the queue.">
+            <cocoa class="StartQueueScriptCommand"/>
+        </command>
+
+        <command name="stop queue" code="SPLQSto" description="Stop the queue.">
+            <cocoa class="StopQueueScriptCommand"/>
+        </command>
+
+        <command name="remove completed items from queue" code="SPLQRem" description="Remove all completed items from the queue.">
+            <cocoa class="RemoveCompletedScriptCommand"/>
+        </command>
+
+        <command name="get queue status" code="SPLQSts" description="Get the current status of the queue.">
+            <cocoa class="QueueStatusScriptCommand"/>
+            <result description="The status of the queue.">
+                <type type="queue status"/>
+            </result>
+        </command>
+
+        <!-- Metadata Commands -->
+        <command name="set metadata" code="SPLSetM" description="Set metadata for a file.">
+            <cocoa class="SetMetadataScriptCommand"/>
+            <parameter name="file" code="file" type="file" description="The file to set metadata for.">
+                <type type="file"/>
+            </parameter>
+            <parameter name="metadata" code="meta" type="record" description="The metadata dictionary to apply.">
+                <type type="record"/>
+            </parameter>
+        </command>
+
+        <command name="get metadata" code="SPLGetM" description="Get metadata from a file.">
+            <cocoa class="GetMetadataScriptCommand"/>
+            <direct-parameter description="The file to get metadata from.">
+                <type type="file"/>
+            </direct-parameter>
+            <result description="The metadata dictionary.">
+                <type type="record"/>
+            </result>
+        </command>
+
+        <!-- Queue Action Commands -->
+        <command name="fix audio fallbacks" code="SPLFixF" description="Fix audio fallback settings for a file.">
+            <cocoa class="FixAudioFallbacksScriptCommand"/>
+            <parameter name="into" code="into" type="file" description="The file to fix audio fallbacks for.">
+                <type type="file"/>
+            </parameter>
+        </command>
+
+        <!-- Queue Enumerations -->
+        <enumeration name="queue status" code="QSts" description="The status of the queue.">
+            <enumerator name="idle" code="QIDL" description="Queue is idle.">
+                <cocoa integer-value="0"/>
+            </enumerator>
+            <enumerator name="running" code="QRUN" description="Queue is running.">
+                <cocoa integer-value="1"/>
+            </enumerator>
+            <enumerator name="completed" code="QCOM" description="Queue has completed.">
+                <cocoa integer-value="2"/>
+            </enumerator>
+        </enumeration>
+
+        <enumeration name="queue item status" code="QISt" description="A queue item status.">
+            <enumerator name="queued" code="STA1" description="Queued status.">
+                <cocoa integer-value="0"/>
+            </enumerator>
+            <enumerator name="running" code="STA2" description="Running status.">
+                <cocoa integer-value="1"/>
+            </enumerator>
+            <enumerator name="succeeded" code="STA3" description="Succeeded status.">
+                <cocoa integer-value="2"/>
+            </enumerator>
+            <enumerator name="failed" code="STA4" description="Failed status.">
+                <cocoa integer-value="3"/>
+            </enumerator>
+        </enumeration>
+
+        <!-- Queue Classes -->
+        <class name="queue item" code="QIte" description="A queue item" inherits="item" plural="queue items">
+            <cocoa class="SPLQueueItem"/>
+
+            <property name="id" code="ID  " type="text" access="r" description="The unique identifier of the queue item.">
+                <cocoa key="uniqueID"/>
+            </property>
+
+            <property name="status" code="StAt" type="queue item status" access="r" description="The status of the queue item.">
+                <cocoa key="status"/>
+            </property>
+
+            <property name="name" code="pnam" type="text" access="r" description="The name of the queue item.">
+                <cocoa key="name"/>
+            </property>
+
+            <property name="sourcePath" code="SOUR" type="text" access="r" description="The source URL of the queue item.">
+                <cocoa key="sourcePath"/>
+            </property>
+
+            <property name="destinationPath" code="DEST" type="text" access="r" description="The destination URL of the queue item.">
+                <cocoa key="destinationPath"/>
+            </property>
+        </class>
+        
+        <class-extension extends="application" description="Queue's top level scripting object.">
+            <element type="queue item" access="r" description="The queue items">
+                <cocoa key="queueItems"/>
+            </element>
+        </class-extension>
+
+    </suite>
+</dictionary>
+
