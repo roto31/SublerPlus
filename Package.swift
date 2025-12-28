@@ -42,7 +42,6 @@ let package = Package(
             exclude: [
                 "Controllers",
                 "Models",
-                "Resources/README.md",
                 "SublerPlus.entitlements"
             ],
             sources: [

@@ -167,10 +167,7 @@ public final class UnifiedSearchManager {
     // MARK: - Available Providers
     
     public var availableProviders: [String] {
-        var providers: [String] = []
-        providers.append(contentsOf: modernProviders.map { $0.id })
-        providers.append(contentsOf: legacyServices.keys)
-        return Array(Set(providers)).sorted()
+        return modernProviders.map { $0.id }.sorted()
     }
 }
 
