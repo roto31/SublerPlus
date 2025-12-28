@@ -18,7 +18,9 @@ public enum ProviderPreference: String, Codable, Sendable {
 /// Provider weighting configuration for search result boosting
 public struct ProviderWeights: Codable, Sendable {
     public var weights: [String: Double] // providerID -> boost factor
-    public let defaultWeight: Double = 1.0
+    
+    // Note: defaultWeight is not stored/decoded, it's a constant
+    public var defaultWeight: Double { 1.0 }
     
     public init(weights: [String: Double] = [:]) {
         self.weights = weights
@@ -36,7 +38,7 @@ public struct ProviderWeights: Codable, Sendable {
     
     /// Initialize with default weights for known providers
     public static func defaults() -> ProviderWeights {
-        var weights = ProviderWeights()
+        let weights = ProviderWeights()
         // Set default weight of 1.0 for all known providers (no boost by default)
         // Users can customize these in settings
         return weights
