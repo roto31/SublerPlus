@@ -1,8 +1,11 @@
 import Foundation
+import os.log
 
 /// Unified search manager that coordinates modern MetadataProvider instances
 /// Provides weighted search results with caching support
-@MainActor
+/// 
+/// Threading: All network operations run off the main thread. UI updates must be
+/// performed on MainActor by the caller.
 public final class UnifiedSearchManager {
     
     // MARK: - Types
@@ -34,6 +37,7 @@ public final class UnifiedSearchManager {
     private let includeAdult: Bool
     private let searchCache: SearchCacheManager?
     private let providerWeights: ProviderWeights
+    private let logger = AppLog.providers
     
     // MARK: - Initialization
     
@@ -42,12 +46,34 @@ public final class UnifiedSearchManager {
         self.includeAdult = includeAdult
         self.searchCache = searchCache
         self.providerWeights = providerWeights
+        
+        AppLog.info(logger, "UnifiedSearchManager initialized with \(modernProviders.count) providers, adult=\(includeAdult)")
     }
     
     // MARK: - Unified Search
     
-    /// Performs a unified search across both modern and legacy providers
+    /// Performs a unified search across modern providers
+    /// 
+    /// - Parameters:
+    ///   - options: Search options including query, type, and filters
+    /// - Returns: Sorted and deduplicated search results
+    /// - Throws: SearchError if no providers available or search fails
+    /// 
+    /// Threading: This method runs off the main thread. Network calls execute concurrently.
     public func search(options: SearchOptions) async throws -> [MetadataResult] {
+        let startTime = Date()
+        AppLog.info(logger, "Search started: query='\(options.query)', type=\(options.type), providers=\(modernProviders.count)")
+        
+        // Validate providers are available
+        let filteredProviders = modernProviders.filter { includeAdult || !$0.isAdult }
+        guard !filteredProviders.isEmpty else {
+            let error = SearchError.noProvidersAvailable
+            AppLog.error(logger, "Search failed: \(error.localizedDescription)")
+            throw error
+        }
+        
+        AppLog.info(logger, "Filtered to \(filteredProviders.count) providers (adult filtering: \(!includeAdult))")
+        
         // Create cache key from options
         let cacheKey = SearchCacheKey(
             query: options.query,
@@ -60,51 +86,118 @@ public final class UnifiedSearchManager {
         
         // Check cache first
         if let cache = searchCache, let cachedResults = await cache.get(key: cacheKey) {
+            let duration = Date().timeIntervalSince(startTime)
+            AppLog.info(logger, "Search cache hit: \(cachedResults.count) results in \(String(format: "%.3f", duration))s")
             return cachedResults
         }
         
+        AppLog.info(logger, "Search cache miss, querying providers...")
+        
         // Cache miss - perform actual search
-        // Search modern providers only
-        let modernResults = await searchModernProviders(options: options)
+        // Execute provider searches concurrently for performance
+        let modernResults = try await searchModernProviders(
+            options: options,
+            providers: filteredProviders
+        )
         
         // Sort and deduplicate results with provider weights
-        let sortedResults = sortAndDeduplicate(results: modernResults, yearHint: options.yearHint, weights: providerWeights)
+        let sortedResults = sortAndDeduplicate(
+            results: modernResults,
+            yearHint: options.yearHint,
+            weights: providerWeights
+        )
         
         // Store in cache
         if let cache = searchCache {
             await cache.set(key: cacheKey, results: sortedResults)
         }
         
+        let duration = Date().timeIntervalSince(startTime)
+        AppLog.info(logger, "Search completed: \(sortedResults.count) results in \(String(format: "%.3f", duration))s")
+        
         return sortedResults
     }
     
     // MARK: - Modern Provider Search
     
-    private func searchModernProviders(options: SearchOptions) async -> [MetadataResult] {
-        let filteredProviders = modernProviders.filter { includeAdult || !$0.isAdult }
-        
-        let tasks = filteredProviders.map { provider in
-            Task { () -> [MetadataResult] in
+    /// Searches modern providers concurrently
+    /// 
+    /// - Parameters:
+    ///   - options: Search options
+    ///   - providers: Filtered list of providers to search
+    /// - Returns: Combined results from all providers
+    /// - Throws: SearchError if all providers fail
+    /// 
+    /// Threading: Network calls execute concurrently on background threads
+    private func searchModernProviders(
+        options: SearchOptions,
+        providers: [MetadataProvider]
+    ) async throws -> [MetadataResult] {
+        // Create concurrent tasks for all providers
+        let tasks = providers.map { provider in
+            Task { () -> (providerID: String, results: [MetadataResult], error: Error?) in
+                let providerID = provider.id
+                AppLog.info(logger, "Provider '\(providerID)' search started")
+                let providerStartTime = Date()
+                
                 do {
-                    return try await provider.search(query: options.query)
+                    // Check for cancellation before starting
+                    try Task.checkCancellation()
+                    
+                    let results = try await provider.search(query: options.query)
+                    
+                    let duration = Date().timeIntervalSince(providerStartTime)
+                    AppLog.info(logger, "Provider '\(providerID)' completed: \(results.count) results in \(String(format: "%.3f", duration))s")
+                    
+                    return (providerID: providerID, results: results, error: nil)
+                } catch is CancellationError {
+                    AppLog.info(logger, "Provider '\(providerID)' search cancelled")
+                    throw CancellationError()
                 } catch {
-                    return []
+                    let duration = Date().timeIntervalSince(providerStartTime)
+                    AppLog.error(logger, "Provider '\(providerID)' failed after \(String(format: "%.3f", duration))s: \(error.localizedDescription)")
+                    return (providerID: providerID, results: [], error: error)
                 }
             }
         }
         
-        var results: [MetadataResult] = []
+        // Collect results from all tasks
+        var allResults: [MetadataResult] = []
+        var providerErrors: [String: Error] = [:]
+        
         for task in tasks {
-            let providerResults = await task.value
-            results.append(contentsOf: providerResults)
+            do {
+                let (providerID, results, error) = try await task.value
+                allResults.append(contentsOf: results)
+                if let error = error {
+                    providerErrors[providerID] = error
+                }
+            } catch is CancellationError {
+                // Task was cancelled, skip it
+                continue
+            } catch {
+                // Unexpected error, log and continue
+                AppLog.error(logger, "Unexpected error collecting provider results: \(error.localizedDescription)")
+            }
         }
         
-        return results
+        // If all providers failed, throw an error
+        if allResults.isEmpty && !providerErrors.isEmpty {
+            let errorMessages = providerErrors.map { "\($0.key): \($0.value.localizedDescription)" }.joined(separator: "; ")
+            throw SearchError.allProvidersFailed(errorMessages)
+        }
+        
+        return allResults
     }
     
     // MARK: - Result Sorting and Deduplication
     
-    private func sortAndDeduplicate(results: [MetadataResult], yearHint: Int?, weights: ProviderWeights) -> [MetadataResult] {
+    /// Sorts and deduplicates search results with provider weight boosting
+    private func sortAndDeduplicate(
+        results: [MetadataResult],
+        yearHint: Int?,
+        weights: ProviderWeights
+    ) -> [MetadataResult] {
         // Deduplicate by ID and title
         var seen: Set<String> = []
         var unique: [MetadataResult] = []
@@ -116,6 +209,8 @@ public final class UnifiedSearchManager {
                 unique.append(result)
             }
         }
+        
+        AppLog.info(logger, "Deduplicated \(results.count) results to \(unique.count) unique results")
         
         // Sort by adjusted score (with provider weight boost), then by year proximity if year hint provided
         return unique.sorted { lhs, rhs in
@@ -156,12 +251,23 @@ public final class UnifiedSearchManager {
     
     /// Fetches detailed metadata for a result using modern providers
     public func fetchDetails(for result: MetadataResult) async throws -> MetadataDetails {
+        AppLog.info(logger, "Fetching details for result: id=\(result.id), source=\(result.source ?? "unknown")")
+        
         // Try modern providers
         if let modernProvider = modernProviders.first(where: { $0.id == result.source }) {
-            return try await modernProvider.fetchDetails(for: result.id)
+            do {
+                let details = try await modernProvider.fetchDetails(for: result.id)
+                AppLog.info(logger, "Details fetched successfully for \(result.id)")
+                return details
+            } catch {
+                AppLog.error(logger, "Failed to fetch details for \(result.id): \(error.localizedDescription)")
+                throw error
+            }
         }
         
-        throw SearchError.providerNotFound(result.source ?? "unknown")
+        let error = SearchError.providerNotFound(result.source ?? "unknown")
+        AppLog.error(logger, "Provider not found for result: \(result.source ?? "unknown")")
+        throw error
     }
     
     // MARK: - Available Providers
@@ -169,18 +275,28 @@ public final class UnifiedSearchManager {
     public var availableProviders: [String] {
         return modernProviders.map { $0.id }.sorted()
     }
+    
+    /// Returns count of available providers after adult filtering
+    public var availableProviderCount: Int {
+        modernProviders.filter { includeAdult || !$0.isAdult }.count
+    }
 }
 
 // MARK: - Errors
 
 public enum SearchError: LocalizedError {
     case providerNotFound(String)
+    case noProvidersAvailable
+    case allProvidersFailed(String)
     
     public var errorDescription: String? {
         switch self {
         case .providerNotFound(let name):
             return "Search provider '\(name)' not found"
+        case .noProvidersAvailable:
+            return "No search providers available. Please configure API keys in Settings."
+        case .allProvidersFailed(let details):
+            return "All search providers failed: \(details)"
         }
     }
 }
-

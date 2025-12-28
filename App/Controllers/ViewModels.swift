@@ -35,8 +35,14 @@ public final class AppViewModel: ObservableObject {
     @Published public var pendingArtworkURL: URL?
     @Published public var showArtworkPicker: Bool = false
     @Published public var showApplyConfirmation: Bool = false
-
+    
+    // Search state management
+    @Published public var isSearching: Bool = false
+    @Published public var searchError: String?
+    
     private var currentFetchTask: Task<Void, Never>?
+    private var currentSearchTask: Task<Void, Never>?
+    private var searchDebounceTask: Task<Void, Never>?
     private let settingsStore: SettingsStore
     private let pipeline: MetadataPipeline
     private let adultProvider: MetadataProvider
@@ -198,11 +204,19 @@ public final class AppViewModel: ObservableObject {
     }
 
     public func runAdvancedSearch() {
+        // Cancel any pending debounce task
+        searchDebounceTask?.cancel()
+        searchDebounceTask = nil
+        
+        // Cancel previous search if still running
+        currentSearchTask?.cancel()
+        currentSearchTask = nil
+        
         // Clear previous search state
         searchResults = []
         selectedSearchResult = nil
         selectedResultDetails = nil
-        status = "Preparing search..."
+        searchError = nil
         
         // Build query from search fields (text only - year is passed as hint separately)
         var components: [String] = []
@@ -218,6 +232,7 @@ public final class AppViewModel: ObservableObject {
         // Validate query is not empty
         guard !query.isEmpty else {
             status = "Please enter at least one search field"
+            isSearching = false
             return
         }
         
@@ -225,8 +240,29 @@ public final class AppViewModel: ObservableObject {
         // Year is used for sorting/ranking results, not as part of the query string
         let yearHint = Int(searchYearFrom) ?? Int(searchYearTo)
         
-        // Run search asynchronously
-        Task { await runSearch(query: query, yearHint: yearHint) }
+        // Run search immediately (no debouncing for button clicks)
+        currentSearchTask = Task { @MainActor in
+            await runSearch(query: query, yearHint: yearHint)
+        }
+    }
+    
+    /// Debounced search for text input changes
+    /// - Parameter delay: Debounce delay in seconds (default: 0.5)
+    public func runAdvancedSearchDebounced(delay: TimeInterval = 0.5) {
+        // Cancel previous debounce task
+        searchDebounceTask?.cancel()
+        
+        // Create new debounce task
+        searchDebounceTask = Task { @MainActor in
+            // Wait for debounce delay
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            
+            // Check if task was cancelled
+            guard !Task.isCancelled else { return }
+            
+            // Execute search
+            runAdvancedSearch()
+        }
     }
     
     public func loadMetadataFromFile(_ url: URL) async {
@@ -1040,15 +1076,39 @@ public final class AppViewModel: ObservableObject {
 
     // MARK: - Search
 
+    /// Executes a search query with proper error handling and state management
+    /// 
+    /// Threading: Network operations run off main thread, UI updates on MainActor
     private func runSearch(query: String, yearHint: Int?) async {
+        // Update UI state on main thread
         await MainActor.run {
+            self.isSearching = true
             self.status = "Searching..."
+            self.searchError = nil
         }
         
-        // Get current settings for weights
+        // Check for cancellation before starting
+        guard !Task.isCancelled else {
+            await MainActor.run {
+                self.isSearching = false
+                self.status = "Search cancelled"
+            }
+            return
+        }
+        
+        // Get current settings for weights (off main thread)
         let currentSettings = await settingsStore.settings
         
-        // Update unified search manager with current settings
+        // Check for cancellation after async call
+        guard !Task.isCancelled else {
+            await MainActor.run {
+                self.isSearching = false
+                self.status = "Search cancelled"
+            }
+            return
+        }
+        
+        // Update unified search manager with current settings (on main thread for @Published)
         await MainActor.run {
             self.unifiedSearchManager = UnifiedSearchManager(
                 modernProviders: searchProviders,
@@ -1070,23 +1130,56 @@ public final class AppViewModel: ObservableObject {
             yearHint: yearHint
         )
         
+        // Execute search off main thread
         do {
+            // Check cancellation before network call
+            try Task.checkCancellation()
+            
+            // Perform search (runs on background thread)
             let results = try await unifiedSearchManager.search(options: options)
             
+            // Check cancellation after search completes
+            try Task.checkCancellation()
+            
+            // Update UI on main thread
             await MainActor.run {
                 self.searchResults = results
-                self.status = results.isEmpty ? "No results found" : "Found \(results.count) result\(results.count == 1 ? "" : "s")"
+                self.isSearching = false
+                self.searchError = nil
+                
+                if results.isEmpty {
+                    self.status = "No results found"
+                } else {
+                    self.status = "Found \(results.count) result\(results.count == 1 ? "" : "s")"
+                }
+                
                 // Clear selection and details when new search results arrive
                 self.selectedSearchResult = nil
                 self.selectedResultDetails = nil
             }
+            
             await statusStream.add("Search completed: \(results.count) results")
-        } catch {
+            
+        } catch is CancellationError {
+            // Search was cancelled, update UI
             await MainActor.run {
-                self.status = "Search failed: \(error.localizedDescription)"
+                self.isSearching = false
+                self.status = "Search cancelled"
+                self.searchError = nil
+            }
+            await statusStream.add("Search cancelled by user")
+            
+        } catch {
+            // Search failed, update UI with error
+            let errorMessage = error.localizedDescription
+            await MainActor.run {
+                self.isSearching = false
+                self.status = "Search failed"
+                self.searchError = errorMessage
                 self.searchResults = []
             }
-            await statusStream.add("Search failed: \(error.localizedDescription)")
+            await statusStream.add("Search failed: \(errorMessage)")
+            AppLog.error(AppLog.providers, "Search failed: \(errorMessage)")
         }
     }
 
