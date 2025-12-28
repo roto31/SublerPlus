@@ -39,14 +39,17 @@ public final class AppViewModel: ObservableObject {
     // Search state management
     @Published public var isSearching: Bool = false
     @Published public var searchError: String?
+    @Published public var incrementalResults: [String: [MetadataResult]] = [:] // provider -> results
     
     private var currentFetchTask: Task<Void, Never>?
-    private var currentSearchTask: Task<Void, Never>?
     private var searchDebounceTask: Task<Void, Never>?
     private let settingsStore: SettingsStore
     private let pipeline: MetadataPipeline
     private let adultProvider: MetadataProvider
     private let searchProviders: [MetadataProvider]
+    private let tpdbProvider: ThePornDBProvider?
+    private let tvdbProvider: TVDBProvider?
+    private let tmdbProvider: StandardMetadataProvider?
     private var unifiedSearchManager: UnifiedSearchManager
     private let searchCache: SearchCacheManager
     private let artworkCache: ArtworkCacheManager
@@ -87,19 +90,30 @@ public final class AppViewModel: ObservableObject {
         artworkCache: ArtworkCacheManager,
         apiKeys: APIKeyManager,
         jobQueue: JobQueue,
-        statusStream: StatusStream
+        statusStream: StatusStream,
+        tpdbProvider: ThePornDBProvider? = nil,
+        tvdbProvider: TVDBProvider? = nil,
+        tmdbProvider: StandardMetadataProvider? = nil
     ) {
         self.settingsStore = settingsStore
         self.pipeline = pipeline
         self.adultProvider = adultProvider
         self.searchProviders = searchProviders
+        self.tpdbProvider = tpdbProvider
+        self.tvdbProvider = tvdbProvider
+        self.tmdbProvider = tmdbProvider
         self.searchCache = SearchCacheManager(maxEntries: 100)
         // Initialize with default weights, will be updated when settings load
         self.unifiedSearchManager = UnifiedSearchManager(
             modernProviders: searchProviders,
             includeAdult: false,
             searchCache: searchCache,
-            providerWeights: ProviderWeights.defaults()
+            providerWeights: ProviderWeights.defaults(),
+            providerPriorities: [:],
+            incrementalStreaming: false,
+            tpdbProvider: tpdbProvider,
+            tvdbProvider: tvdbProvider,
+            tmdbProvider: tmdbProvider
         )
         self.artworkCache = artworkCache
         self.apiKeys = apiKeys
@@ -127,7 +141,12 @@ public final class AppViewModel: ObservableObject {
                 modernProviders: searchProviders,
                 includeAdult: adultEnabled,
                 searchCache: searchCache,
-                providerWeights: current.providerWeights
+                providerWeights: current.providerWeights,
+                providerPriorities: current.providerPriorities,
+                incrementalStreaming: current.incrementalStreamingEnabled,
+                tpdbProvider: tpdbProvider,
+                tvdbProvider: tvdbProvider,
+                tmdbProvider: tmdbProvider
             )
         }
     }
@@ -208,9 +227,7 @@ public final class AppViewModel: ObservableObject {
         searchDebounceTask?.cancel()
         searchDebounceTask = nil
         
-        // Cancel previous search if still running
-        currentSearchTask?.cancel()
-        currentSearchTask = nil
+        // Cancel previous search if still running (handled by Task cancellation)
         
         // Clear previous search state
         searchResults = []
@@ -241,7 +258,7 @@ public final class AppViewModel: ObservableObject {
         let yearHint = Int(searchYearFrom) ?? Int(searchYearTo)
         
         // Run search immediately (no debouncing for button clicks)
-        currentSearchTask = Task { @MainActor in
+        Task { @MainActor in
             await runSearch(query: query, yearHint: yearHint)
         }
     }
@@ -1114,7 +1131,12 @@ public final class AppViewModel: ObservableObject {
                 modernProviders: searchProviders,
                 includeAdult: adultEnabled,
                 searchCache: searchCache,
-                providerWeights: currentSettings.providerWeights
+                providerWeights: currentSettings.providerWeights,
+                providerPriorities: currentSettings.providerPriorities,
+                incrementalStreaming: currentSettings.incrementalStreamingEnabled,
+                tpdbProvider: tpdbProvider,
+                tvdbProvider: tvdbProvider,
+                tmdbProvider: tmdbProvider
             )
         }
         
@@ -1130,56 +1152,61 @@ public final class AppViewModel: ObservableObject {
             yearHint: yearHint
         )
         
-        // Execute search off main thread
+        // Note: Incremental streaming requires Subler integration (Xcode build)
+        // For SwiftPM builds, we use batch mode
+        // Use batch mode (async/await for backward compatibility)
         do {
-            // Check cancellation before network call
-            try Task.checkCancellation()
-            
-            // Perform search (runs on background thread)
-            let results = try await unifiedSearchManager.search(options: options)
-            
-            // Check cancellation after search completes
-            try Task.checkCancellation()
-            
-            // Update UI on main thread
-            await MainActor.run {
-                self.searchResults = results
-                self.isSearching = false
-                self.searchError = nil
+            // Use batch mode (async/await for backward compatibility)
+            do {
+                // Check cancellation before network call
+                try Task.checkCancellation()
                 
-                if results.isEmpty {
-                    self.status = "No results found"
-                } else {
-                    self.status = "Found \(results.count) result\(results.count == 1 ? "" : "s")"
+                // Perform search (runs on background thread)
+                let results = try await unifiedSearchManager.search(options: options)
+                
+                // Check cancellation after search completes
+                try Task.checkCancellation()
+                
+                // Update UI on main thread
+                await MainActor.run {
+                    self.searchResults = results
+                    self.isSearching = false
+                    self.searchError = nil
+                    
+                    if results.isEmpty {
+                        self.status = "No results found"
+                    } else {
+                        self.status = "Found \(results.count) result\(results.count == 1 ? "" : "s")"
+                    }
+                    
+                    // Clear selection and details when new search results arrive
+                    self.selectedSearchResult = nil
+                    self.selectedResultDetails = nil
                 }
                 
-                // Clear selection and details when new search results arrive
-                self.selectedSearchResult = nil
-                self.selectedResultDetails = nil
+                await statusStream.add("Search completed: \(results.count) results")
+                
+            } catch is CancellationError {
+                // Search was cancelled, update UI
+                await MainActor.run {
+                    self.isSearching = false
+                    self.status = "Search cancelled"
+                    self.searchError = nil
+                }
+                await statusStream.add("Search cancelled by user")
+                
+            } catch {
+                // Search failed, update UI with error
+                let errorMessage = error.localizedDescription
+                await MainActor.run {
+                    self.isSearching = false
+                    self.status = "Search failed"
+                    self.searchError = errorMessage
+                    self.searchResults = []
+                }
+                await statusStream.add("Search failed: \(errorMessage)")
+                AppLog.error(AppLog.providers, "Search failed: \(errorMessage)")
             }
-            
-            await statusStream.add("Search completed: \(results.count) results")
-            
-        } catch is CancellationError {
-            // Search was cancelled, update UI
-            await MainActor.run {
-                self.isSearching = false
-                self.status = "Search cancelled"
-                self.searchError = nil
-            }
-            await statusStream.add("Search cancelled by user")
-            
-        } catch {
-            // Search failed, update UI with error
-            let errorMessage = error.localizedDescription
-            await MainActor.run {
-                self.isSearching = false
-                self.status = "Search failed"
-                self.searchError = errorMessage
-                self.searchResults = []
-            }
-            await statusStream.add("Search failed: \(errorMessage)")
-            AppLog.error(AppLog.providers, "Search failed: \(errorMessage)")
         }
     }
 
@@ -1283,6 +1310,8 @@ public final class SettingsViewModel: ObservableObject {
     @Published public var enableMusicMetadata: Bool = true
     @Published public var musixmatchKey: String = ""
     @Published public var providerWeights: [String: Double] = [:]
+    @Published public var incrementalStreamingEnabled: Bool = false
+    @Published public var providerPriorities: [String: Int] = [:]
 
     private let settingsStore: SettingsStore
     private let apiKeys: APIKeyManager
@@ -1320,6 +1349,8 @@ public final class SettingsViewModel: ObservableObject {
         enableMusicMetadata = settings.enableMusicMetadata
         musixmatchKey = apiKeys.loadMusixmatchKey() ?? ""
         providerWeights = settings.providerWeights.weights
+        incrementalStreamingEnabled = settings.incrementalStreamingEnabled
+        providerPriorities = settings.providerPriorities
     }
 
     public func save() {
@@ -1340,6 +1371,8 @@ public final class SettingsViewModel: ObservableObject {
                 settings.preferHighResArtwork = preferHighResArtwork
                 settings.enableMusicMetadata = enableMusicMetadata
                 settings.providerWeights = ProviderWeights(weights: providerWeights)
+                settings.incrementalStreamingEnabled = incrementalStreamingEnabled
+                settings.providerPriorities = providerPriorities
             }
             pipeline.retainOriginals = retainOriginals
             pipeline.outputDirectory = outputDirectory

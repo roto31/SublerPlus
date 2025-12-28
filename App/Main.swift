@@ -208,7 +208,10 @@ struct AppDependencies {
             artworkCache: artworkCache,
             apiKeys: apiKeys,
             jobQueue: jobQueue,
-            statusStream: statusStream
+            statusStream: statusStream,
+            tpdbProvider: tpdbProvider,
+            tvdbProvider: tvdbProvider,
+            tmdbProvider: tmdbProvider
         )
         let settingsVM = SettingsViewModel(settingsStore: settingsStore, apiKeys: apiKeys, pipeline: pipeline)
 

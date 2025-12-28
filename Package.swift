@@ -28,7 +28,10 @@ let package = Package(
                 "AppDelegate.swift",
                 "Views",
                 "SublerPlus.entitlements",
-                "Resources/AppIcon.appiconset"
+                "Resources/AppIcon.appiconset",
+                "Controllers/SublerCompatibility/ProviderPriority.swift" // Duplicate - using main one
+                // Note: SublerCompatibility is included but uses #if canImport(MP42Foundation)
+                // The framework must be built using scripts/build-with-subler.sh for these files to compile
             ],
             resources: []
         ),

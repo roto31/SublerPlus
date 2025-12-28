@@ -481,8 +481,10 @@ public struct AppSettings: Codable {
     public var preferHighResArtwork: Bool
     public var enableMusicMetadata: Bool
     public var providerWeights: ProviderWeights
+    public var incrementalStreamingEnabled: Bool
+    public var providerPriorities: [String: Int]
 
-    public init(adultEnabled: Bool = false, tpdbConfidence: Double = 0.5, lastKeyRotation: Date? = nil, retainOriginals: Bool = false, outputDirectory: String? = nil, generateNFO: Bool = false, nfoOutputDirectory: String? = nil, tvNamingTemplate: String = "S%02dE%02d - %t", watchFolders: [String] = [], defaultSubtitleLanguage: String = "eng", autoSubtitleLookup: Bool = false, iTunesCountry: String = "us", preferHighResArtwork: Bool = true, enableMusicMetadata: Bool = true, providerWeights: ProviderWeights = ProviderWeights.defaults()) {
+    public init(adultEnabled: Bool = false, tpdbConfidence: Double = 0.5, lastKeyRotation: Date? = nil, retainOriginals: Bool = false, outputDirectory: String? = nil, generateNFO: Bool = false, nfoOutputDirectory: String? = nil, tvNamingTemplate: String = "S%02dE%02d - %t", watchFolders: [String] = [], defaultSubtitleLanguage: String = "eng", autoSubtitleLookup: Bool = false, iTunesCountry: String = "us", preferHighResArtwork: Bool = true, enableMusicMetadata: Bool = true, providerWeights: ProviderWeights = ProviderWeights.defaults(), incrementalStreamingEnabled: Bool = false, providerPriorities: [String: Int] = [:]) {
         self.adultEnabled = adultEnabled
         self.tpdbConfidence = tpdbConfidence
         self.lastKeyRotation = lastKeyRotation
@@ -498,6 +500,10 @@ public struct AppSettings: Codable {
         self.preferHighResArtwork = preferHighResArtwork
         self.enableMusicMetadata = enableMusicMetadata
         self.providerWeights = providerWeights
+        self.incrementalStreamingEnabled = incrementalStreamingEnabled
+        // Use default priorities if none provided
+        let defaultPriorities = ProviderPriority.defaults().priorities
+        self.providerPriorities = providerPriorities.isEmpty ? defaultPriorities : providerPriorities
     }
 }
 

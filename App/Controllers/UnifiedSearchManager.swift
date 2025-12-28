@@ -37,17 +37,31 @@ public final class UnifiedSearchManager {
     private let includeAdult: Bool
     private let searchCache: SearchCacheManager?
     private let providerWeights: ProviderWeights
+    private let providerPriority: ProviderPriority
+    private let incrementalStreaming: Bool
     private let logger = AppLog.providers
     
     // MARK: - Initialization
     
-    public init(modernProviders: [MetadataProvider], includeAdult: Bool = false, searchCache: SearchCacheManager? = nil, providerWeights: ProviderWeights = ProviderWeights.defaults()) {
+    public init(
+        modernProviders: [MetadataProvider],
+        includeAdult: Bool = false,
+        searchCache: SearchCacheManager? = nil,
+        providerWeights: ProviderWeights = ProviderWeights.defaults(),
+        providerPriorities: [String: Int] = [:],
+        incrementalStreaming: Bool = false,
+        tpdbProvider: ThePornDBProvider? = nil,
+        tvdbProvider: TVDBProvider? = nil,
+        tmdbProvider: StandardMetadataProvider? = nil
+    ) {
         self.modernProviders = modernProviders
         self.includeAdult = includeAdult
         self.searchCache = searchCache
         self.providerWeights = providerWeights
+        self.providerPriority = ProviderPriority(priorities: providerPriorities.isEmpty ? ProviderPriority.defaults().priorities : providerPriorities)
+        self.incrementalStreaming = incrementalStreaming
         
-        AppLog.info(logger, "UnifiedSearchManager initialized with \(modernProviders.count) providers, adult=\(includeAdult)")
+        AppLog.info(logger, "UnifiedSearchManager initialized with \(modernProviders.count) providers, adult=\(includeAdult), incremental=\(incrementalStreaming)")
     }
     
     // MARK: - Unified Search
@@ -104,7 +118,8 @@ public final class UnifiedSearchManager {
         let sortedResults = sortAndDeduplicate(
             results: modernResults,
             yearHint: options.yearHint,
-            weights: providerWeights
+            weights: providerWeights,
+            priority: providerPriority
         )
         
         // Store in cache
@@ -133,8 +148,11 @@ public final class UnifiedSearchManager {
         options: SearchOptions,
         providers: [MetadataProvider]
     ) async throws -> [MetadataResult] {
+        // Sort providers by priority
+        let sortedProviders = providerPriority.sortProviders(providers) { $0.id }
+        
         // Create concurrent tasks for all providers
-        let tasks = providers.map { provider in
+        let tasks = sortedProviders.map { provider in
             Task { () -> (providerID: String, results: [MetadataResult], error: Error?) in
                 let providerID = provider.id
                 AppLog.info(logger, "Provider '\(providerID)' search started")
@@ -192,11 +210,12 @@ public final class UnifiedSearchManager {
     
     // MARK: - Result Sorting and Deduplication
     
-    /// Sorts and deduplicates search results with provider weight boosting
+    /// Sorts and deduplicates search results with provider weight boosting and priority
     private func sortAndDeduplicate(
         results: [MetadataResult],
         yearHint: Int?,
-        weights: ProviderWeights
+        weights: ProviderWeights,
+        priority: ProviderPriority
     ) -> [MetadataResult] {
         // Deduplicate by ID and title
         var seen: Set<String> = []
@@ -212,7 +231,7 @@ public final class UnifiedSearchManager {
         
         AppLog.info(logger, "Deduplicated \(results.count) results to \(unique.count) unique results")
         
-        // Sort by adjusted score (with provider weight boost), then by year proximity if year hint provided
+        // Sort by adjusted score (with provider weight boost and priority), then by year proximity if year hint provided
         return unique.sorted { lhs, rhs in
             // Apply provider weight boost to scores
             let lhsProviderID = lhs.source ?? ""
@@ -220,9 +239,19 @@ public final class UnifiedSearchManager {
             let lhsWeight = weights.weight(for: lhsProviderID)
             let rhsWeight = weights.weight(for: rhsProviderID)
             
+            // Apply priority boost
+            let lhsPriority = priority.priority(for: lhsProviderID)
+            let rhsPriority = priority.priority(for: rhsProviderID)
+            
             let lhsScore = (lhs.score ?? 0) * lhsWeight
             let rhsScore = (rhs.score ?? 0) * rhsWeight
             
+            // If priorities differ significantly, prioritize by priority
+            if abs(lhsPriority - rhsPriority) > 10 {
+                return lhsPriority > rhsPriority
+            }
+            
+            // Otherwise, sort by adjusted score
             if lhsScore != rhsScore {
                 return lhsScore > rhsScore
             }

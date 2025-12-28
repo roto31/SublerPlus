@@ -87,9 +87,40 @@ public final class DependencyChecker: @unchecked Sendable {
     
     /// Find command in PATH
     private func findCommand(_ command: String) async -> String? {
+        // First, try common Homebrew paths (Apple Silicon and Intel)
+        let commonPaths = [
+            "/opt/homebrew/bin",      // Apple Silicon Homebrew
+            "/usr/local/bin",         // Intel Homebrew
+            "/opt/homebrew/opt/ffmpeg/bin",  // Homebrew formula-specific path
+            "/usr/local/opt/ffmpeg/bin",
+            "/usr/bin",
+            "/bin"
+        ]
+        
+        for basePath in commonPaths {
+            let fullPath = "\(basePath)/\(command)"
+            if FileManager.default.fileExists(atPath: fullPath) {
+                return fullPath
+            }
+        }
+        
+        // Fallback: Use which command with proper environment
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         process.arguments = [command]
+        
+        // Set up environment with proper PATH
+        var environment = ProcessInfo.processInfo.environment
+        // Ensure Homebrew paths are in PATH
+        if let currentPath = environment["PATH"] {
+            let homebrewPaths = ["/opt/homebrew/bin", "/usr/local/bin"]
+            let pathComponents = currentPath.components(separatedBy: ":")
+            let allPaths = homebrewPaths + pathComponents
+            environment["PATH"] = allPaths.joined(separator: ":")
+        } else {
+            environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        }
+        process.environment = environment
         
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -102,12 +133,13 @@ public final class DependencyChecker: @unchecked Sendable {
             if process.terminationStatus == 0 {
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 if let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !path.isEmpty {
+                   !path.isEmpty,
+                   FileManager.default.fileExists(atPath: path) {
                     return path
                 }
             }
         } catch {
-            return nil
+            // Continue to return nil
         }
         
         return nil
@@ -119,36 +151,74 @@ public final class DependencyChecker: @unchecked Sendable {
         process.executableURL = URL(fileURLWithPath: commandPath)
         process.arguments = Array(dependency.versionCommand.dropFirst())
         
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
+        // Set up environment with proper PATH
+        var environment = ProcessInfo.processInfo.environment
+        if let currentPath = environment["PATH"] {
+            let homebrewPaths = ["/opt/homebrew/bin", "/usr/local/bin"]
+            let pathComponents = currentPath.components(separatedBy: ":")
+            let allPaths = homebrewPaths + pathComponents
+            environment["PATH"] = allPaths.joined(separator: ":")
+        } else {
+            environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        }
+        process.environment = environment
+        
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
         
         do {
             try process.run()
             process.waitUntilExit()
             
-            if process.terminationStatus == 0 {
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                if let output = String(data: data, encoding: .utf8) {
-                    // Try to extract version using pattern if provided
-                    if let pattern = dependency.versionPattern {
-                        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
-                            let range = NSRange(location: 0, length: output.utf16.count)
-                            if let match = regex.firstMatch(in: output, range: range),
-                               let versionRange = Range(match.range(at: 1), in: output) {
-                                return String(output[versionRange])
-                            }
+            // FFmpeg outputs version to stderr, others to stdout
+            // Read from both and combine
+            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            
+            var output = ""
+            if let outputString = String(data: outputData, encoding: .utf8), !outputString.isEmpty {
+                output = outputString
+            }
+            if let errorString = String(data: errorData, encoding: .utf8), !errorString.isEmpty {
+                // Prefer stderr if stdout is empty, or combine if both exist
+                if output.isEmpty {
+                    output = errorString
+                } else {
+                    output = output + "\n" + errorString
+                }
+            }
+            
+            if !output.isEmpty {
+                // Try to extract version using pattern if provided
+                if let pattern = dependency.versionPattern {
+                    if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+                        let range = NSRange(location: 0, length: output.utf16.count)
+                        if let match = regex.firstMatch(in: output, range: range),
+                           match.numberOfRanges > 1,
+                           let versionRange = Range(match.range(at: 1), in: output) {
+                            return String(output[versionRange])
                         }
                     }
-                    // Fallback: return first line or first number sequence
-                    let lines = output.components(separatedBy: .newlines)
-                    if let firstLine = lines.first, !firstLine.isEmpty {
-                        // Try to extract version number
-                        if let versionMatch = firstLine.range(of: #"\d+\.\d+"#, options: .regularExpression) {
-                            return String(firstLine[versionMatch])
+                }
+                
+                // Fallback: extract version from first line
+                let lines = output.components(separatedBy: .newlines)
+                for line in lines {
+                    if !line.isEmpty {
+                        // Try to extract version number (e.g., "8.0.1" or "5.5.2")
+                        if let versionMatch = line.range(of: #"\d+\.\d+\.\d+"#, options: .regularExpression) {
+                            return String(line[versionMatch])
+                        } else if let versionMatch = line.range(of: #"\d+\.\d+"#, options: .regularExpression) {
+                            return String(line[versionMatch])
                         }
-                        return firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
                     }
+                }
+                
+                // Last resort: return first non-empty line
+                if let firstLine = lines.first(where: { !$0.isEmpty }) {
+                    return firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
             }
         } catch {

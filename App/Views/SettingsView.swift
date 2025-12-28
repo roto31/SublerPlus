@@ -51,6 +51,30 @@ struct SettingsView: View {
                 
                 Divider()
                 Toggle("Enable adult metadata", isOn: $viewModel.adultEnabled)
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Search Settings")
+                        .font(.headline)
+                    Toggle("Incremental streaming (show results as providers complete)", isOn: $viewModel.incrementalStreamingEnabled)
+                        .font(.caption)
+                    Text("When enabled, search results appear as each provider completes. When disabled, all results appear at once.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Provider Priorities")
+                        .font(.headline)
+                    Text("Higher priority providers execute first and appear first in results")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    // Provider priority controls would go here
+                    // For now, we'll use defaults from ProviderPriority
+                    Text("Default priorities: TMDB (80), TVDB (70), TPDB (60)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                
                 VStack(alignment: .leading, spacing: 8) {
                     Text("TPDB API Key")
                     SecureField("Key", text: $viewModel.tpdbKey)
