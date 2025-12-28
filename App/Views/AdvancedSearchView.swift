@@ -408,10 +408,18 @@ struct AdvancedSearchView: View {
                 Button(action: {
                     viewModel.runAdvancedSearch()
                 }) {
-                    Text("Search")
+                    HStack {
+                        if viewModel.isSearching {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .frame(width: 12, height: 12)
+                        }
+                        Text(viewModel.isSearching ? "Searching..." : "Search")
+                    }
                 }
                 .keyboardShortcut(.return, modifiers: [])
                 .buttonStyle(.borderedProminent)
+                .disabled(viewModel.isSearching)
                 Spacer()
                 Picker("Provider weighting", selection: $viewModel.providerPreference) {
                     Text("Balanced").tag(ProviderPreference.balanced)
@@ -427,11 +435,51 @@ struct AdvancedSearchView: View {
             if viewModel.showArtworkPicker {
                 // Show artwork picker instead of results
                 artworkPickerView
+            } else if viewModel.isSearching {
+                // Loading state
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Text("Searching...")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding()
+            } else if let error = viewModel.searchError {
+                // Error state
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.largeTitle)
+                        .foregroundColor(.red)
+                    Text("Search Failed")
+                        .font(.headline)
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("Retry") {
+                        viewModel.runAdvancedSearch()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding()
             } else if viewModel.searchResults.isEmpty {
-                Text("No results yet. Click Search to find matches.")
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding()
+                // Empty state
+                VStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.largeTitle)
+                        .foregroundColor(.secondary)
+                    Text("No results yet")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                    Text("Click Search to find matches")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding()
             } else {
                 HStack(alignment: .top, spacing: 16) {
                     // Results list

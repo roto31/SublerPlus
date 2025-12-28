@@ -49,3 +49,22 @@ public enum LogLevel {
     case minimal
 }
 
+// MARK: - File Logging Integration
+
+/// Initialize file logging (call at app startup)
+public func initializeFileLogging() {
+    // File logger is initialized lazily via globalFileLogger
+    // Log startup message
+    Task {
+        await globalFileLogger.log(level: "INFO", category: "general", message: "SublerPlus application started")
+    }
+}
+
+/// Shutdown file logging (call at app termination)
+public func shutdownFileLogging() {
+    Task {
+        await globalFileLogger.log(level: "INFO", category: "general", message: "SublerPlus application shutting down")
+        await globalFileLogger.close()
+    }
+}
+

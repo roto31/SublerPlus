@@ -7,6 +7,11 @@ struct SublerPlusApp: App {
     private let dependencies = AppDependencies.build()
     
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    
+    init() {
+        // Initialize file logging at app startup
+        initializeFileLogging()
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -203,7 +208,10 @@ struct AppDependencies {
             artworkCache: artworkCache,
             apiKeys: apiKeys,
             jobQueue: jobQueue,
-            statusStream: statusStream
+            statusStream: statusStream,
+            tpdbProvider: tpdbProvider,
+            tvdbProvider: tvdbProvider,
+            tmdbProvider: tmdbProvider
         )
         let settingsVM = SettingsViewModel(settingsStore: settingsStore, apiKeys: apiKeys, pipeline: pipeline)
 

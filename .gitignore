@@ -8,3 +8,7 @@ xcuserdata/
 .idea/
 .vscode/
 *.xcuserstate
+logs/
+Frameworks/
+build/
+*.log
