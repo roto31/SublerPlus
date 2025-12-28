@@ -8,3 +8,4 @@ xcuserdata/
 .idea/
 .vscode/
 *.xcuserstate
+logs/

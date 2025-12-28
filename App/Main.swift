@@ -7,6 +7,11 @@ struct SublerPlusApp: App {
     private let dependencies = AppDependencies.build()
     
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    
+    init() {
+        // Initialize file logging at app startup
+        initializeFileLogging()
+    }
 
     var body: some Scene {
         WindowGroup {

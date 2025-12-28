@@ -27,7 +27,8 @@ let package = Package(
                 "Main.swift",
                 "AppDelegate.swift",
                 "Views",
-                "SublerPlus.entitlements"
+                "SublerPlus.entitlements",
+                "Resources/AppIcon.appiconset"
             ],
             resources: []
         ),

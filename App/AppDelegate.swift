@@ -54,4 +54,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
     }
+    
+    // MARK: - Application Lifecycle
+    
+    func applicationWillTerminate(_ notification: Notification) {
+        // Shutdown file logging gracefully
+        shutdownFileLogging()
+    }
 }
