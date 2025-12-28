@@ -15,6 +15,34 @@ public enum ProviderPreference: String, Codable, Sendable {
     case yearFirst
 }
 
+/// Provider weighting configuration for search result boosting
+public struct ProviderWeights: Codable, Sendable {
+    public var weights: [String: Double] // providerID -> boost factor
+    public let defaultWeight: Double = 1.0
+    
+    public init(weights: [String: Double] = [:]) {
+        self.weights = weights
+    }
+    
+    /// Get weight for a provider, returning default if not specified
+    public func weight(for providerID: String) -> Double {
+        weights[providerID] ?? defaultWeight
+    }
+    
+    /// Set weight for a provider
+    public mutating func setWeight(_ weight: Double, for providerID: String) {
+        weights[providerID] = weight
+    }
+    
+    /// Initialize with default weights for known providers
+    public static func defaults() -> ProviderWeights {
+        var weights = ProviderWeights()
+        // Set default weight of 1.0 for all known providers (no boost by default)
+        // Users can customize these in settings
+        return weights
+    }
+}
+
 public protocol MP4Handler: Sendable {
     func readMetadata(at url: URL) throws -> MetadataHint
     func writeMetadata(_ metadata: MetadataDetails, tags: [String: Any], to url: URL) throws
@@ -450,8 +478,9 @@ public struct AppSettings: Codable {
     public var iTunesCountry: String
     public var preferHighResArtwork: Bool
     public var enableMusicMetadata: Bool
+    public var providerWeights: ProviderWeights
 
-    public init(adultEnabled: Bool = false, tpdbConfidence: Double = 0.5, lastKeyRotation: Date? = nil, retainOriginals: Bool = false, outputDirectory: String? = nil, generateNFO: Bool = false, nfoOutputDirectory: String? = nil, tvNamingTemplate: String = "S%02dE%02d - %t", watchFolders: [String] = [], defaultSubtitleLanguage: String = "eng", autoSubtitleLookup: Bool = false, iTunesCountry: String = "us", preferHighResArtwork: Bool = true, enableMusicMetadata: Bool = true) {
+    public init(adultEnabled: Bool = false, tpdbConfidence: Double = 0.5, lastKeyRotation: Date? = nil, retainOriginals: Bool = false, outputDirectory: String? = nil, generateNFO: Bool = false, nfoOutputDirectory: String? = nil, tvNamingTemplate: String = "S%02dE%02d - %t", watchFolders: [String] = [], defaultSubtitleLanguage: String = "eng", autoSubtitleLookup: Bool = false, iTunesCountry: String = "us", preferHighResArtwork: Bool = true, enableMusicMetadata: Bool = true, providerWeights: ProviderWeights = ProviderWeights.defaults()) {
         self.adultEnabled = adultEnabled
         self.tpdbConfidence = tpdbConfidence
         self.lastKeyRotation = lastKeyRotation
@@ -466,6 +495,7 @@ public struct AppSettings: Codable {
         self.iTunesCountry = iTunesCountry
         self.preferHighResArtwork = preferHighResArtwork
         self.enableMusicMetadata = enableMusicMetadata
+        self.providerWeights = providerWeights
     }
 }
 

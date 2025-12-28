@@ -42,6 +42,7 @@ public final class AppViewModel: ObservableObject {
     private let adultProvider: MetadataProvider
     private let searchProviders: [MetadataProvider]
     private var unifiedSearchManager: UnifiedSearchManager
+    private let searchCache: SearchCacheManager
     private let artworkCache: ArtworkCacheManager
     private let apiKeys: APIKeyManager
     private let jobQueue: JobQueue
@@ -60,6 +61,10 @@ public final class AppViewModel: ObservableObject {
     
     public func getChapters(for url: URL) -> [Chapter]? {
         fileChapters[url]
+    }
+    
+    public func getAvailableProviders() -> [String] {
+        unifiedSearchManager.availableProviders
     }
     private let cacheURL: URL = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -82,7 +87,14 @@ public final class AppViewModel: ObservableObject {
         self.pipeline = pipeline
         self.adultProvider = adultProvider
         self.searchProviders = searchProviders
-        self.unifiedSearchManager = UnifiedSearchManager(modernProviders: searchProviders, includeAdult: false)
+        self.searchCache = SearchCacheManager(maxEntries: 100)
+        // Initialize with default weights, will be updated when settings load
+        self.unifiedSearchManager = UnifiedSearchManager(
+            modernProviders: searchProviders,
+            includeAdult: false,
+            searchCache: searchCache,
+            providerWeights: ProviderWeights.defaults()
+        )
         self.artworkCache = artworkCache
         self.apiKeys = apiKeys
         self.jobQueue = jobQueue
@@ -102,6 +114,16 @@ public final class AppViewModel: ObservableObject {
         let folders = current.watchFolders.map { URL(fileURLWithPath: $0) }
         updateWatchFolders(folders)
         defaultSubtitleLanguage = current.defaultSubtitleLanguage
+        
+        // Update unified search manager with current settings
+        await MainActor.run {
+            self.unifiedSearchManager = UnifiedSearchManager(
+                modernProviders: searchProviders,
+                includeAdult: adultEnabled,
+                searchCache: searchCache,
+                providerWeights: current.providerWeights
+            )
+        }
     }
 
     public func refreshTokenBanner() {
@@ -296,8 +318,16 @@ public final class AppViewModel: ObservableObject {
                 self.selectedResultDetails = nil
             }
             
-            // Update unified search manager with current adult content setting
-            let updatedManager = UnifiedSearchManager(modernProviders: searchProviders, includeAdult: adultEnabled)
+            // Get current settings for weights
+            let currentSettings = await settingsStore.settings
+            
+            // Update unified search manager with current settings
+            let updatedManager = UnifiedSearchManager(
+                modernProviders: searchProviders,
+                includeAdult: adultEnabled,
+                searchCache: searchCache,
+                providerWeights: currentSettings.providerWeights
+            )
             await MainActor.run {
                 self.unifiedSearchManager = updatedManager
             }
@@ -1013,8 +1043,19 @@ public final class AppViewModel: ObservableObject {
     private func runSearch(query: String, yearHint: Int?) async {
         await MainActor.run {
             self.status = "Searching..."
-            // Update unified search manager with current adult content setting
-            self.unifiedSearchManager = UnifiedSearchManager(modernProviders: searchProviders, includeAdult: adultEnabled)
+        }
+        
+        // Get current settings for weights
+        let currentSettings = await settingsStore.settings
+        
+        // Update unified search manager with current settings
+        await MainActor.run {
+            self.unifiedSearchManager = UnifiedSearchManager(
+                modernProviders: searchProviders,
+                includeAdult: adultEnabled,
+                searchCache: searchCache,
+                providerWeights: currentSettings.providerWeights
+            )
         }
         
         // Determine search type from query context (simplified - could be enhanced)
@@ -1148,6 +1189,7 @@ public final class SettingsViewModel: ObservableObject {
     @Published public var preferHighResArtwork: Bool = true
     @Published public var enableMusicMetadata: Bool = true
     @Published public var musixmatchKey: String = ""
+    @Published public var providerWeights: [String: Double] = [:]
 
     private let settingsStore: SettingsStore
     private let apiKeys: APIKeyManager
@@ -1184,6 +1226,7 @@ public final class SettingsViewModel: ObservableObject {
         preferHighResArtwork = settings.preferHighResArtwork
         enableMusicMetadata = settings.enableMusicMetadata
         musixmatchKey = apiKeys.loadMusixmatchKey() ?? ""
+        providerWeights = settings.providerWeights.weights
     }
 
     public func save() {
@@ -1203,6 +1246,7 @@ public final class SettingsViewModel: ObservableObject {
                 settings.iTunesCountry = iTunesCountry
                 settings.preferHighResArtwork = preferHighResArtwork
                 settings.enableMusicMetadata = enableMusicMetadata
+                settings.providerWeights = ProviderWeights(weights: providerWeights)
             }
             pipeline.retainOriginals = retainOriginals
             pipeline.outputDirectory = outputDirectory
