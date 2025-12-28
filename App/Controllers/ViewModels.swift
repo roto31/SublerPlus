@@ -41,6 +41,7 @@ public final class AppViewModel: ObservableObject {
     private let pipeline: MetadataPipeline
     private let adultProvider: MetadataProvider
     private let searchProviders: [MetadataProvider]
+    private var unifiedSearchManager: UnifiedSearchManager
     private let artworkCache: ArtworkCacheManager
     private let apiKeys: APIKeyManager
     private let jobQueue: JobQueue
@@ -81,6 +82,7 @@ public final class AppViewModel: ObservableObject {
         self.pipeline = pipeline
         self.adultProvider = adultProvider
         self.searchProviders = searchProviders
+        self.unifiedSearchManager = UnifiedSearchManager(modernProviders: searchProviders, includeAdult: false)
         self.artworkCache = artworkCache
         self.apiKeys = apiKeys
         self.jobQueue = jobQueue
@@ -294,23 +296,18 @@ public final class AppViewModel: ObservableObject {
                 self.selectedResultDetails = nil
             }
             
-            // Find the provider that returned this result
-            let providerID = result.source ?? ""
-            let provider = searchProviders.first { $0.id == providerID } ?? searchProviders.first
-            
-            guard let provider = provider else {
-                await MainActor.run {
-                    self.status = "No provider available to fetch details"
-                }
-                await statusStream.add("Failed to fetch details: No provider available")
-                return
+            // Update unified search manager with current adult content setting
+            let updatedManager = UnifiedSearchManager(modernProviders: searchProviders, includeAdult: adultEnabled)
+            await MainActor.run {
+                self.unifiedSearchManager = updatedManager
             }
             
             do {
                 // Check cancellation before starting network request
                 try Task.checkCancellation()
                 
-                let details = try await provider.fetchDetails(for: result.id)
+                // Use unified search manager to fetch details (tries modern first, then legacy)
+                let details = try await updatedManager.fetchDetails(for: result)
                 
                 // Check cancellation again before updating UI
                 try Task.checkCancellation()
@@ -324,6 +321,22 @@ public final class AppViewModel: ObservableObject {
                 // Don't update UI if task was cancelled (Task.checkCancellation throws CancellationError)
                 if error is CancellationError {
                     return
+                }
+                
+                // Fallback to direct provider lookup if unified manager fails
+                let providerID = result.source ?? ""
+                if let provider = searchProviders.first(where: { $0.id == providerID }) {
+                    do {
+                        let details = try await provider.fetchDetails(for: result.id)
+                        await MainActor.run {
+                            self.selectedResultDetails = details
+                            self.status = "Details loaded for \(result.title)"
+                        }
+                        await statusStream.add("Loaded details for \(result.title)")
+                        return
+                    } catch {
+                        // Continue to error handling
+                    }
                 }
                 
                 await MainActor.run {
@@ -1000,60 +1013,39 @@ public final class AppViewModel: ObservableObject {
     private func runSearch(query: String, yearHint: Int?) async {
         await MainActor.run {
             self.status = "Searching..."
+            // Update unified search manager with current adult content setting
+            self.unifiedSearchManager = UnifiedSearchManager(modernProviders: searchProviders, includeAdult: adultEnabled)
         }
         
-        let includeAdult = adultEnabled
-        let providers = searchProviders.filter { includeAdult || !$0.isAdult }
-
-        // Check if any providers are available after filtering
-        guard !providers.isEmpty else {
+        // Determine search type from query context (simplified - could be enhanced)
+        // For now, default to movie search, but could analyze query to detect TV shows
+        let searchType: UnifiedSearchManager.SearchType = .movie
+        
+        let options = UnifiedSearchManager.SearchOptions(
+            query: query,
+            type: searchType,
+            language: nil, // Could use user preference
+            providerName: nil, // Use all providers
+            yearHint: yearHint
+        )
+        
+        do {
+            let results = try await unifiedSearchManager.search(options: options)
+            
             await MainActor.run {
-                var message = "No search providers available."
-                if !adultEnabled && searchProviders.contains(where: { $0.isAdult }) {
-                    message += " Enable adult content in Settings or add API keys (TMDB/TVDB) to search."
-                } else if searchProviders.isEmpty {
-                    message += " Please add API keys (TMDB/TVDB) in Settings to enable search."
-                }
-                self.status = message
+                self.searchResults = results
+                self.status = results.isEmpty ? "No results found" : "Found \(results.count) result\(results.count == 1 ? "" : "s")"
+                // Clear selection and details when new search results arrive
+                self.selectedSearchResult = nil
+                self.selectedResultDetails = nil
+            }
+            await statusStream.add("Search completed: \(results.count) results")
+        } catch {
+            await MainActor.run {
+                self.status = "Search failed: \(error.localizedDescription)"
                 self.searchResults = []
             }
-            await statusStream.add("Search failed: No providers available")
-            return
-        }
-
-        let tasks = providers.map { provider in
-            Task { () -> [MetadataResult] in
-                do {
-                    let results = try await provider.search(query: query)
-                    return annotate(results, providerID: provider.id)
-                } catch {
-                    await statusStream.add("Search failed for \(provider.id): \(error.localizedDescription)")
-                    return []
-                }
-            }
-        }
-
-        var collected: [MetadataResult] = []
-        for task in tasks {
-            let results = await task.value
-            collected.append(contentsOf: results)
-        }
-
-        let sorted = collected.sorted {
-            let lhsScore = $0.score ?? 0
-            let rhsScore = $1.score ?? 0
-            if lhsScore == rhsScore, let hint = yearHint, let ly = $0.year, let ry = $1.year {
-                return abs(hint - ly) < abs(hint - ry)
-            }
-            return lhsScore > rhsScore
-        }
-
-        await MainActor.run {
-            self.searchResults = sorted
-            self.status = sorted.isEmpty ? "No results found" : "Found \(sorted.count) result\(sorted.count == 1 ? "" : "s")"
-            // Clear selection and details when new search results arrive
-            self.selectedSearchResult = nil
-            self.selectedResultDetails = nil
+            await statusStream.add("Search failed: \(error.localizedDescription)")
         }
     }
 
