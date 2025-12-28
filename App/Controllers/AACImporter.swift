@@ -34,17 +34,17 @@ public final class AACImporter: RawFormatImporter {
         }
         
         // Extract profile (bits 3-4 of byte 2)
-        let profile = (bytes[2] >> 6) & 0x03
+        _ = (bytes[2] >> 6) & 0x03
         
         // Extract sampling frequency index (bits 2-5 of byte 2)
         let samplingFreqIndex = (bytes[2] >> 2) & 0x0F
         
         // Extract channel configuration (bits 0-2 of byte 3)
-        let channelConfig = (bytes[3] >> 6) & 0x07
+        _ = (bytes[3] >> 6) & 0x07
         
         // Map sampling frequency
         let sampleRates: [Int] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350]
-        let sampleRate = samplingFreqIndex < sampleRates.count ? sampleRates[Int(samplingFreqIndex)] : 44100
+        _ = samplingFreqIndex < sampleRates.count ? sampleRates[Int(samplingFreqIndex)] : 44100
         
         // Estimate bitrate (rough estimate based on file size and duration if available)
         // For raw streams, we can't determine duration easily without parsing all frames

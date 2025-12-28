@@ -16,7 +16,6 @@ public final class H264Importer: RawFormatImporter {
         
         // Parse H.264 NAL units to find SPS/PPS
         var sps: Data?
-        var pps: Data?
         var width: Int?
         var height: Int?
         
@@ -58,7 +57,7 @@ public final class H264Importer: RawFormatImporter {
                             height = dimensions.height
                         }
                     } else if nalType == 8 { // PPS
-                        pps = Data(nalData)
+                        _ = Data(nalData) // PPS not used in current implementation
                     }
                     
                     offset = nalEnd
@@ -70,7 +69,7 @@ public final class H264Importer: RawFormatImporter {
             }
         }
         
-        guard let spsData = sps else {
+        guard sps != nil else {
             throw RawFormatError.parseFailed
         }
         
@@ -94,7 +93,7 @@ public final class H264Importer: RawFormatImporter {
         guard data.count > 10 else { return nil }
         
         // Skip NAL header and profile/level
-        var offset = 1
+        _ = 1
         
         // Parse SPS syntax (simplified)
         // In real implementation, would use proper Exp-Golomb decoding

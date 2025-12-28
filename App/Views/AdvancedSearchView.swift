@@ -20,14 +20,21 @@ struct AdvancedSearchView: View {
                             HStack {
                                 Image(systemName: "arrow.down.doc")
                                     .foregroundColor(.secondary)
+                                    .font(.title2)
                                 Text("Drag and drop a media file here to load its metadata")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(Color.secondary.opacity(0.1))
+                            .frame(minHeight: 80)
+                            .padding(.vertical, 16)
+                            .padding(.horizontal, 16)
+                            .background(isDraggingOver ? Color.accentColor.opacity(0.1) : Color.secondary.opacity(0.1))
                             .cornerRadius(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(isDraggingOver ? Color.accentColor : Color.clear, lineWidth: 2)
+                            )
                         }
                         
                         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
@@ -100,14 +107,16 @@ struct AdvancedSearchView: View {
         }
         .padding()
         .animation(reduceMotion ? nil : .default, value: viewModel.searchResults.count)
+        .contentShape(Rectangle())
+        .onDrop(of: [.fileURL], isTargeted: $isDraggingOver) { providers in
+            handleDrop(providers: providers)
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(isDraggingOver ? Color.accentColor : Color.clear, lineWidth: 2)
                 .padding(4)
+                .allowsHitTesting(false)
         )
-        .onDrop(of: [.movie, .mpeg4Movie, .quickTimeMovie, .audio, .mpeg4Audio], isTargeted: $isDraggingOver) { providers in
-            handleDrop(providers: providers)
-        }
         .confirmationDialog(
             "Apply Metadata",
             isPresented: $viewModel.showApplyConfirmation,
@@ -309,40 +318,100 @@ struct AdvancedSearchView: View {
     }
     
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first else { return false }
+        let fileProviders = providers.filter { $0.hasItemConformingToTypeIdentifier("public.file-url") }
+        guard !fileProviders.isEmpty, let provider = fileProviders.first else { return false }
         
-        if provider.hasItemConformingToTypeIdentifier("public.file-url") {
-            provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, error in
-                guard let data = item as? Data,
-                      let url = URL(dataRepresentation: data, relativeTo: nil) else {
-                    return
+        // Load the file URL asynchronously (using the same pattern as FileListView)
+        provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, error in
+            if let error = error {
+                Task { @MainActor in
+                    self.viewModel.status = "Error loading file: \(error.localizedDescription)"
                 }
-                
-                // Validate file type
-                let ext = url.pathExtension.lowercased()
-                guard ["mp4", "m4v", "m4a", "mov", "mkv"].contains(ext) else {
-                    Task { @MainActor in
-                        viewModel.status = "Unsupported file type: \(ext)"
-                    }
-                    return
-                }
-                
-                Task {
-                    await viewModel.loadMetadataFromFile(url)
-                }
+                return
             }
-            return true
+            
+            var fileURL: URL?
+            
+            // Try different ways to extract the URL
+            if let url = item as? URL {
+                fileURL = url
+            } else if let data = item as? Data {
+                // Try to create URL from data representation
+                fileURL = URL(dataRepresentation: data, relativeTo: nil)
+                
+                // If that fails, try to decode as string (file path)
+                if fileURL == nil || !fileURL!.isFileURL {
+                    if let string = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) {
+                        // Remove file:// prefix if present
+                        let cleanString = string.hasPrefix("file://") ? String(string.dropFirst(7)) : string
+                        fileURL = URL(fileURLWithPath: cleanString)
+                    }
+                }
+            } else if let string = item as? String {
+                // Remove file:// prefix if present
+                let cleanString = string.hasPrefix("file://") ? String(string.dropFirst(7)) : string
+                fileURL = URL(fileURLWithPath: cleanString)
+            }
+            
+            guard let url = fileURL else {
+                Task { @MainActor in
+                    self.viewModel.status = "Could not extract file URL from dropped item"
+                }
+                return
+            }
+            
+            // Process the dropped file
+            self.processDroppedFile(url: url)
         }
         
-        return false
+        return true
+    }
+    
+    private func processDroppedFile(url: URL) {
+        // Ensure it's a file URL (not a web URL)
+        guard url.isFileURL else {
+            Task { @MainActor in
+                viewModel.status = "Only local files are supported"
+            }
+            return
+        }
+        
+        // Resolve symlinks and get the actual file path
+        let resolvedURL = url.resolvingSymlinksInPath()
+        
+        // Validate file exists
+        guard FileManager.default.fileExists(atPath: resolvedURL.path) else {
+            Task { @MainActor in
+                viewModel.status = "File not found: \(resolvedURL.lastPathComponent)"
+            }
+            return
+        }
+        
+        // Validate file type
+        let ext = resolvedURL.pathExtension.lowercased()
+        guard ["mp4", "m4v", "m4a", "mov", "mkv"].contains(ext) else {
+            Task { @MainActor in
+                viewModel.status = "Unsupported file type: \(ext). Supported: MP4, M4V, M4A, MOV, MKV"
+            }
+            return
+        }
+        
+        // Load metadata from file
+        Task {
+            await viewModel.loadMetadataFromFile(resolvedURL)
+        }
     }
 
     private var advancedFooter: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Button("Search") { viewModel.runAdvancedSearch() }
-                    .keyboardShortcut(.return, modifiers: [])
-                    .buttonStyle(.borderedProminent)
+                Button(action: {
+                    viewModel.runAdvancedSearch()
+                }) {
+                    Text("Search")
+                }
+                .keyboardShortcut(.return, modifiers: [])
+                .buttonStyle(.borderedProminent)
                 Spacer()
                 Picker("Provider weighting", selection: $viewModel.providerPreference) {
                     Text("Balanced").tag(ProviderPreference.balanced)
@@ -403,8 +472,18 @@ struct AdvancedSearchView: View {
                     if let selectedResult = viewModel.selectedSearchResult {
                         resultDetailsView(for: selectedResult)
                             .frame(minWidth: 300)
+                            .onChange(of: viewModel.selectedSearchResult?.id) { newID in
+                                // Fetch details when selection changes
+                                if let newID = newID, let result = viewModel.searchResults.first(where: { $0.id == newID }) {
+                                    // Clear old details and fetch new ones
+                                    viewModel.selectedResultDetails = nil
+                                    Task {
+                                        await viewModel.fetchResultDetails(for: result)
+                                    }
+                                }
+                            }
                             .onAppear {
-                                // Automatically fetch details when result is selected
+                                // Also handle initial selection (if onChange doesn't fire)
                                 if viewModel.selectedResultDetails == nil {
                                     Task {
                                         await viewModel.fetchResultDetails(for: selectedResult)

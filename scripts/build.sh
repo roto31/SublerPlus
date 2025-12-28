@@ -201,9 +201,48 @@ EOF
   if command -v codesign &> /dev/null; then
     if [[ -f "$bundle_dir/Contents/SublerPlus.entitlements" ]]; then
       echo "==> Code signing with entitlements"
-      codesign --force --deep --sign - --entitlements "$bundle_dir/Contents/SublerPlus.entitlements" "$bundle_dir" 2>/dev/null || {
-        echo "Warning: Code signing failed (may need developer certificate). Continuing..."
-      }
+      
+      # Determine signing identity
+      # Priority: 1) Environment variable, 2) Developer ID, 3) Apple Development, 4) Ad-hoc
+      SIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
+      
+      if [[ -z "$SIGN_IDENTITY" ]]; then
+        # Try to find Developer ID Application certificate (for distribution)
+        DEV_ID=$(security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        if [[ -n "$DEV_ID" ]]; then
+          SIGN_IDENTITY="$DEV_ID"
+          echo "   Using Developer ID certificate: $SIGN_IDENTITY"
+        else
+          # Try to find Apple Development certificate (for development)
+          APPLE_DEV=$(security find-identity -v -p codesigning 2>/dev/null | grep "Apple Development" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if [[ -n "$APPLE_DEV" ]]; then
+            SIGN_IDENTITY="$APPLE_DEV"
+            echo "   Using Apple Development certificate: $SIGN_IDENTITY"
+          else
+            # Fall back to ad-hoc signing
+            SIGN_IDENTITY="-"
+            echo "   No developer certificate found, using ad-hoc signing"
+          fi
+        fi
+      else
+        echo "   Using certificate from CODESIGN_IDENTITY: $SIGN_IDENTITY"
+      fi
+      
+      # Clean extended attributes and remove existing signature before signing
+      xattr -cr "$bundle_dir" 2>/dev/null || true
+      codesign --remove-signature "$bundle_dir" 2>/dev/null || true
+      
+      # Sign the app
+      if codesign --force --deep --sign "$SIGN_IDENTITY" --entitlements "$bundle_dir/Contents/SublerPlus.entitlements" "$bundle_dir" 2>&1; then
+        echo "✅ Code signing successful"
+        # Verify signature
+        if codesign -dv --verbose=4 "$bundle_dir" 2>&1 | grep -q "valid on disk"; then
+          echo "✅ Code signature verified"
+        fi
+      else
+        echo "Warning: Code signing failed. Continuing without signature..."
+        echo "   Note: App may trigger Gatekeeper warnings on first launch"
+      fi
     else
       echo "Warning: Entitlements file not found. App Sandbox may not be enabled."
     fi

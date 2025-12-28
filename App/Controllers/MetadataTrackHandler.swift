@@ -21,7 +21,7 @@ public final class MetadataTrackHandler: @unchecked Sendable {
     
     /// Extract timed metadata from track
     public func extractTimedMetadata(from track: AVAssetTrack) async throws -> [TimedMetadataItem] {
-        var items: [TimedMetadataItem] = []
+        let items: [TimedMetadataItem] = []
         
         // Load metadata track samples
         // AVFoundation provides limited access to timed metadata

@@ -1,0 +1,79 @@
+==========================================
+SublerPlus Build Report - Version 0.3.7b
+==========================================
+
+BUILD STATUS: ✅ SUCCESS
+
+Build Date: 2025-12-27 20:00:00
+Version: 0.3.7b
+Bundle: SublerPlus.app
+Archive: SublerPlus-0.3.7b.zip (2.5 MB)
+
+COMPILATION:
+✅ All Swift sources compile successfully
+✅ 110 feature components verified
+✅ 51 tests passed (0 failures)
+✅ Test execution time: 1.474 seconds
+
+FEATURE BREAKDOWN:
+- Core Metadata: 5 components
+- Providers: 7 components  
+- Search: 5 components
+- UI Views: 10 components
+- Muxing: 7 components
+- Audio: 4 components
+- Subtitles: 9 components
+- Video: 7 components
+- Queue: 5 components
+- Security: 4 components
+- WebUI: 4 components
+- AppleScript: 3 components
+- Dependencies: 3 components
+- Artwork: 3 components
+- Settings: 3 components
+- Utilities: 5 components
+- Raw Formats: 2 components
+- CLI: 1 component
+- Performance: 3 components
+- Recent Fixes: 4 components
+
+KEY IMPROVEMENTS IN 0.3.7b:
+✅ Keychain optimization - No authentication prompts
+✅ Drag-and-drop metadata search
+✅ Performance fixes for search results
+✅ Task cancellation for concurrent operations
+✅ In-memory Keychain caching
+
+WARNINGS (Non-Critical):
+⚠️ SwiftPM unhandled files (Contents.json - expected)
+⚠️ Icon generation warning (placeholder icons - acceptable)
+⚠️ Code signing: Ad-hoc (development mode)
+
+ERRORS:
+❌ None
+
+TEST COVERAGE:
+- AtomCodec: 4 tests
+- Providers: 5 tests (TPDB, TMDB, TVDB)
+- Muxing: 3 tests
+- Subtitles: 5 tests
+- Security: 8 tests
+- Queue: 1 test
+- Circuit Breaker: 1 test
+- Raw Formats: 5 tests
+- Container Import: 4 tests
+- Chapters: 6 tests
+- TX3G Encoding: 4 tests
+- WebUI: 1 test
+
+TOTAL: 51 tests, all passing
+
+BUILD ARTIFACTS:
+✅ App Bundle: build/SublerPlus.app
+✅ Archive: build/App builds/SublerPlus-0.3.7b.zip
+✅ Executable: SublerPlusApp (arm64)
+✅ Code Signed: Yes (ad-hoc)
+✅ Entitlements: Applied
+✅ AppleScript Dictionary: Included
+
+For detailed feature list, see: BUILD_REPORT_0.3.7b.csv

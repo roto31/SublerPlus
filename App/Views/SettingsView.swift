@@ -296,6 +296,58 @@ struct SettingsView: View {
                     Text("TPDB Minimum Confidence: \(String(format: "%.2f", viewModel.tpdbConfidence))")
                     Slider(value: $viewModel.tpdbConfidence, in: 0...1, step: 0.05)
                 }
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Search Provider Preferences")
+                        .font(.headline)
+                    Text("Adjust boost factors for search providers. Higher values prioritize results from that provider.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    let availableProviders = appViewModel.getAvailableProviders()
+                    ForEach(availableProviders.sorted(), id: \.self) { providerID in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(providerID)
+                                    .font(.subheadline)
+                                Spacer()
+                                Text(String(format: "%.2f", viewModel.providerWeights[providerID] ?? 1.0))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 40, alignment: .trailing)
+                            }
+                            Slider(
+                                value: Binding(
+                                    get: { viewModel.providerWeights[providerID] ?? 1.0 },
+                                    set: { viewModel.providerWeights[providerID] = $0 }
+                                ),
+                                in: 0.0...2.0,
+                                step: 0.1
+                            )
+                            HStack {
+                                Text("0.0 (disable)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Text("1.0 (default)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Text("2.0 (double)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    if availableProviders.isEmpty {
+                        Text("No providers available")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding()
+                .background(Color(NSColor.controlBackgroundColor))
+                .cornerRadius(8)
                 HStack(spacing: 12) {
                     Button("Clear Match Cache") {
                         appViewModel.clearResolutionCache()

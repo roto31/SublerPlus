@@ -36,10 +36,13 @@ public final class AppViewModel: ObservableObject {
     @Published public var showArtworkPicker: Bool = false
     @Published public var showApplyConfirmation: Bool = false
 
+    private var currentFetchTask: Task<Void, Never>?
     private let settingsStore: SettingsStore
     private let pipeline: MetadataPipeline
     private let adultProvider: MetadataProvider
     private let searchProviders: [MetadataProvider]
+    private var unifiedSearchManager: UnifiedSearchManager
+    private let searchCache: SearchCacheManager
     private let artworkCache: ArtworkCacheManager
     private let apiKeys: APIKeyManager
     private let jobQueue: JobQueue
@@ -58,6 +61,10 @@ public final class AppViewModel: ObservableObject {
     
     public func getChapters(for url: URL) -> [Chapter]? {
         fileChapters[url]
+    }
+    
+    public func getAvailableProviders() -> [String] {
+        unifiedSearchManager.availableProviders
     }
     private let cacheURL: URL = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -80,6 +87,14 @@ public final class AppViewModel: ObservableObject {
         self.pipeline = pipeline
         self.adultProvider = adultProvider
         self.searchProviders = searchProviders
+        self.searchCache = SearchCacheManager(maxEntries: 100)
+        // Initialize with default weights, will be updated when settings load
+        self.unifiedSearchManager = UnifiedSearchManager(
+            modernProviders: searchProviders,
+            includeAdult: false,
+            searchCache: searchCache,
+            providerWeights: ProviderWeights.defaults()
+        )
         self.artworkCache = artworkCache
         self.apiKeys = apiKeys
         self.jobQueue = jobQueue
@@ -99,6 +114,16 @@ public final class AppViewModel: ObservableObject {
         let folders = current.watchFolders.map { URL(fileURLWithPath: $0) }
         updateWatchFolders(folders)
         defaultSubtitleLanguage = current.defaultSubtitleLanguage
+        
+        // Update unified search manager with current settings
+        await MainActor.run {
+            self.unifiedSearchManager = UnifiedSearchManager(
+                modernProviders: searchProviders,
+                includeAdult: adultEnabled,
+                searchCache: searchCache,
+                providerWeights: current.providerWeights
+            )
+        }
     }
 
     public func refreshTokenBanner() {
@@ -173,21 +198,34 @@ public final class AppViewModel: ObservableObject {
     }
 
     public func runAdvancedSearch() {
+        // Clear previous search state
+        searchResults = []
+        selectedSearchResult = nil
+        selectedResultDetails = nil
+        status = "Preparing search..."
+        
+        // Build query from search fields (text only - year is passed as hint separately)
         var components: [String] = []
         if !searchTitle.isEmpty { components.append(searchTitle) }
         if !searchStudio.isEmpty { components.append(searchStudio) }
         if !searchActors.isEmpty { components.append(searchActors) }
         if !searchDirectors.isEmpty { components.append(searchDirectors) }
         if !searchAirDate.isEmpty { components.append(searchAirDate) }
-        if let from = Int(searchYearFrom) {
-            components.append("year:\(from)")
+        
+        // Build query string
+        let query = components.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Validate query is not empty
+        guard !query.isEmpty else {
+            status = "Please enter at least one search field"
+            return
         }
-        if let to = Int(searchYearTo) {
-            components.append("year:\(to)")
-        }
-        let query = components.joined(separator: " ")
-        guard !query.isEmpty else { return }
+        
+        // Get year hint (use from year if available, otherwise to year)
+        // Year is used for sorting/ranking results, not as part of the query string
         let yearHint = Int(searchYearFrom) ?? Int(searchYearTo)
+        
+        // Run search asynchronously
         Task { await runSearch(query: query, yearHint: yearHint) }
     }
     
@@ -269,35 +307,76 @@ public final class AppViewModel: ObservableObject {
     }
     
     public func fetchResultDetails(for result: MetadataResult) async {
-        await MainActor.run {
-            self.status = "Fetching details for \(result.title)..."
+        // Cancel any existing fetch task
+        currentFetchTask?.cancel()
+        
+        // Create new fetch task
+        currentFetchTask = Task {
+            await MainActor.run {
+                self.status = "Fetching details for \(result.title)..."
+                // Clear old details immediately
+                self.selectedResultDetails = nil
+            }
+            
+            // Get current settings for weights
+            let currentSettings = await settingsStore.settings
+            
+            // Update unified search manager with current settings
+            let updatedManager = UnifiedSearchManager(
+                modernProviders: searchProviders,
+                includeAdult: adultEnabled,
+                searchCache: searchCache,
+                providerWeights: currentSettings.providerWeights
+            )
+            await MainActor.run {
+                self.unifiedSearchManager = updatedManager
+            }
+            
+            do {
+                // Check cancellation before starting network request
+                try Task.checkCancellation()
+                
+                // Use unified search manager to fetch details (tries modern first, then legacy)
+                let details = try await updatedManager.fetchDetails(for: result)
+                
+                // Check cancellation again before updating UI
+                try Task.checkCancellation()
+                
+                await MainActor.run {
+                    self.selectedResultDetails = details
+                    self.status = "Details loaded for \(result.title)"
+                }
+                await statusStream.add("Loaded details for \(result.title)")
+            } catch {
+                // Don't update UI if task was cancelled (Task.checkCancellation throws CancellationError)
+                if error is CancellationError {
+                    return
+                }
+                
+                // Fallback to direct provider lookup if unified manager fails
+                let providerID = result.source ?? ""
+                if let provider = searchProviders.first(where: { $0.id == providerID }) {
+                    do {
+                        let details = try await provider.fetchDetails(for: result.id)
+                        await MainActor.run {
+                            self.selectedResultDetails = details
+                            self.status = "Details loaded for \(result.title)"
+                        }
+                        await statusStream.add("Loaded details for \(result.title)")
+                        return
+                    } catch {
+                        // Continue to error handling
+                    }
+                }
+                
+                await MainActor.run {
+                    self.status = "Failed to fetch details: \(error.localizedDescription)"
+                }
+                await statusStream.add("Failed to fetch details for \(result.title): \(error.localizedDescription)")
+            }
         }
         
-        // Find the provider that returned this result
-        let providerID = result.source ?? ""
-        let provider = searchProviders.first { $0.id == providerID } ?? searchProviders.first
-        
-        guard let provider = provider else {
-            await MainActor.run {
-                self.status = "No provider available to fetch details"
-            }
-            await statusStream.add("Failed to fetch details: No provider available")
-            return
-        }
-        
-        do {
-            let details = try await provider.fetchDetails(for: result.id)
-            await MainActor.run {
-                self.selectedResultDetails = details
-                self.status = "Details loaded for \(result.title)"
-            }
-            await statusStream.add("Loaded details for \(result.title)")
-        } catch {
-            await MainActor.run {
-                self.status = "Failed to fetch details: \(error.localizedDescription)"
-            }
-            await statusStream.add("Failed to fetch details for \(result.title): \(error.localizedDescription)")
-        }
+        await currentFetchTask?.value
     }
     
     public func applySelectedMetadata(to file: URL) async {
@@ -966,55 +1045,48 @@ public final class AppViewModel: ObservableObject {
             self.status = "Searching..."
         }
         
-        let includeAdult = adultEnabled
-        let providers = searchProviders.filter { includeAdult || !$0.isAdult }
-
-        // Check if any providers are available after filtering
-        guard !providers.isEmpty else {
+        // Get current settings for weights
+        let currentSettings = await settingsStore.settings
+        
+        // Update unified search manager with current settings
+        await MainActor.run {
+            self.unifiedSearchManager = UnifiedSearchManager(
+                modernProviders: searchProviders,
+                includeAdult: adultEnabled,
+                searchCache: searchCache,
+                providerWeights: currentSettings.providerWeights
+            )
+        }
+        
+        // Determine search type from query context (simplified - could be enhanced)
+        // For now, default to movie search, but could analyze query to detect TV shows
+        let searchType: UnifiedSearchManager.SearchType = .movie
+        
+        let options = UnifiedSearchManager.SearchOptions(
+            query: query,
+            type: searchType,
+            language: nil, // Could use user preference
+            providerName: nil, // Use all providers
+            yearHint: yearHint
+        )
+        
+        do {
+            let results = try await unifiedSearchManager.search(options: options)
+            
             await MainActor.run {
-                var message = "No search providers available."
-                if !adultEnabled && searchProviders.contains(where: { $0.isAdult }) {
-                    message += " Enable adult content in Settings or add API keys (TMDB/TVDB) to search."
-                } else if searchProviders.isEmpty {
-                    message += " Please add API keys (TMDB/TVDB) in Settings to enable search."
-                }
-                self.status = message
+                self.searchResults = results
+                self.status = results.isEmpty ? "No results found" : "Found \(results.count) result\(results.count == 1 ? "" : "s")"
+                // Clear selection and details when new search results arrive
+                self.selectedSearchResult = nil
+                self.selectedResultDetails = nil
+            }
+            await statusStream.add("Search completed: \(results.count) results")
+        } catch {
+            await MainActor.run {
+                self.status = "Search failed: \(error.localizedDescription)"
                 self.searchResults = []
             }
-            await statusStream.add("Search failed: No providers available")
-            return
-        }
-
-        let tasks = providers.map { provider in
-            Task { () -> [MetadataResult] in
-                do {
-                    let results = try await provider.search(query: query)
-                    return annotate(results, providerID: provider.id)
-                } catch {
-                    await statusStream.add("Search failed for \(provider.id): \(error.localizedDescription)")
-                    return []
-                }
-            }
-        }
-
-        var collected: [MetadataResult] = []
-        for task in tasks {
-            let results = await task.value
-            collected.append(contentsOf: results)
-        }
-
-        let sorted = collected.sorted {
-            let lhsScore = $0.score ?? 0
-            let rhsScore = $1.score ?? 0
-            if lhsScore == rhsScore, let hint = yearHint, let ly = $0.year, let ry = $1.year {
-                return abs(hint - ly) < abs(hint - ry)
-            }
-            return lhsScore > rhsScore
-        }
-
-        await MainActor.run {
-            self.searchResults = sorted
-            self.status = sorted.isEmpty ? "No results found" : "Found \(sorted.count) result\(sorted.count == 1 ? "" : "s")"
+            await statusStream.add("Search failed: \(error.localizedDescription)")
         }
     }
 
@@ -1117,6 +1189,7 @@ public final class SettingsViewModel: ObservableObject {
     @Published public var preferHighResArtwork: Bool = true
     @Published public var enableMusicMetadata: Bool = true
     @Published public var musixmatchKey: String = ""
+    @Published public var providerWeights: [String: Double] = [:]
 
     private let settingsStore: SettingsStore
     private let apiKeys: APIKeyManager
@@ -1153,6 +1226,7 @@ public final class SettingsViewModel: ObservableObject {
         preferHighResArtwork = settings.preferHighResArtwork
         enableMusicMetadata = settings.enableMusicMetadata
         musixmatchKey = apiKeys.loadMusixmatchKey() ?? ""
+        providerWeights = settings.providerWeights.weights
     }
 
     public func save() {
@@ -1172,6 +1246,7 @@ public final class SettingsViewModel: ObservableObject {
                 settings.iTunesCountry = iTunesCountry
                 settings.preferHighResArtwork = preferHighResArtwork
                 settings.enableMusicMetadata = enableMusicMetadata
+                settings.providerWeights = ProviderWeights(weights: providerWeights)
             }
             pipeline.retainOriginals = retainOriginals
             pipeline.outputDirectory = outputDirectory

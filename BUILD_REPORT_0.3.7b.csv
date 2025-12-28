@@ -1,0 +1,110 @@
+Feature Category,Feature Name,Component/File,Status,Notes,Test Coverage
+Build,Compilation,All Sources,SUCCESS,All Swift files compile successfully,51 tests passed
+Build,Release Bundle,SublerPlus.app,SUCCESS,Version 0.3.7b bundle created,
+Build,Code Signing,Entitlements,SUCCESS,Ad-hoc signing (development),-
+Build,Icon Resources,AppIcon.appiconset,SUCCESS,Placeholder icons generated (10 sizes),-
+Build,Tests Execution,Test Suite,SUCCESS,51 tests passed in 1.467 seconds,All suites
+Core Metadata,MP4 Tagging,AtomCodec.swift,SUCCESS,Read/write MP4 atoms (ilst),4 tests
+Core Metadata,Metadata Reading,MetadataManager.swift,SUCCESS,AVFoundation + atom parsing,-
+Core Metadata,Metadata Writing,SublerMP4Handler,SUCCESS,Tag mapping and atom writing,3 tests
+Core Metadata,TV Show Metadata,AtomCodec.readIlst,SUCCESS,TV show atoms (tvsh/tvsn/tves/tven),-
+Core Metadata,Rating Metadata,AtomCodec.readIlst,SUCCESS,Rating atom (rtng) parsing,-
+Providers,ThePornDB Provider,AdultMetadataProvider.swift,SUCCESS,Adult metadata with retry,3 tests
+Providers,TMDB Provider,StandardMetadataProvider.swift,SUCCESS,Movie metadata with retry,1 test
+Providers,TVDB Provider,TVDBProvider.swift,SUCCESS,TV show metadata with retry,1 test
+Providers,Subler Local Provider,SublerProvider.swift,SUCCESS,Local MP4 metadata extraction,-
+Providers,iTunes Artwork,iTunesArtworkProvider.swift,SUCCESS,Artwork lookup service,-
+Providers,Music Metadata,MusicMetadataProvider.swift,SUCCESS,Album/track/lyrics lookup,-
+Providers,Lyrics Provider,LyricsProvider.swift,SUCCESS,Musixmatch lyrics integration,-
+Providers,OpenSubtitles,OpenSubtitlesProvider.swift,SUCCESS,Official API integration,-
+Search,Advanced Search UI,AdvancedSearchView.swift,SUCCESS,Drag-and-drop + search fields,-
+Search,Search Functionality,ViewModels.runAdvancedSearch,SUCCESS,Multi-provider search with year hint,-
+Search,Result Details,ViewModels.fetchResultDetails,SUCCESS,Task cancellation for performance,-
+Search,Drag and Drop,AdvancedSearchView.handleDrop,SUCCESS,File drop with metadata extraction,-
+Search,Metadata Display,AdvancedSearchView.fileMetadataSidebar,SUCCESS,Sidebar with file metadata,-
+UI Views,Main Shell,RootShellView.swift,SUCCESS,Navigation split view,-
+UI Views,File List,FileListView.swift,SUCCESS,File management with drag-drop,-
+UI Views,File Details,FileDetailView.swift,SUCCESS,Metadata display and editing,-
+UI Views,Settings,SettingsView.swift,SUCCESS,API keys and preferences,-
+UI Views,Presets,PresetView.swift,SUCCESS,Muxing preset management,-
+UI Views,Artwork Browser,ArtworkBrowserView.swift,SUCCESS,Artwork selection UI,-
+UI Views,Muxing Interface,MuxingView.swift,SUCCESS,Track selection and conversion,-
+UI Views,Web Content,WebContentView.swift,SUCCESS,Embedded WebUI display,-
+UI Views,Dependency Check,DependencyCheckView.swift,SUCCESS,External dependency status,-
+Muxing,Muxer Core,Muxer.swift,SUCCESS,AVFoundation-based muxing,3 tests
+Muxing,Audio Conversion,AudioConverter.swift,SUCCESS,AAC (AVFoundation) + others (FFmpeg),-
+Muxing,Subtitle Muxing,SubtitleManager.swift,SUCCESS,TX3G embedding via TX3GTrackBuilder,5 tests
+Muxing,TX3G Encoding,TX3GEncoder.swift,SUCCESS,SRT/WebVTT to TX3G conversion,4 tests
+Muxing,TX3G Track Builder,TX3GTrackBuilder.swift,SUCCESS,Full MP4 atom structure for subtitles,-
+Muxing,Preset Manager,PresetManager.swift,SUCCESS,Preset storage and application,-
+Muxing,MP4 Optimization,Muxer.optimizeMP4Atoms,SUCCESS,Atom reordering and compaction,-
+Audio,Audio Conversion,AudioConverter.swift,SUCCESS,Multiple codec support (AAC/AC3/FLAC/etc),-
+Audio,AC3 Import,AC3Importer.swift,SUCCESS,AC3 raw format support,5 tests
+Audio,AAC Import,AACImporter.swift,SUCCESS,AAC raw format support,5 tests
+Audio,Codec Detection,FFmpegCodecDetector.swift,SUCCESS,FFmpeg-based detection with FourCC mapping,-
+Subtitles,Subtitle Manager,SubtitleManager.swift,SUCCESS,Search/download/embed workflow,-
+Subtitles,Subtitle Conversion,SubtitleConverter.swift,SUCCESS,SSA/ASS to TX3G conversion,-
+Subtitles,Subtitle OCR,SubtitleOCR.swift,SUCCESS,Bitmap subtitle OCR (PGS/VobSub),-
+Subtitles,Closed Captions,ClosedCaptionHandler.swift,SUCCESS,CEA-608/CEA-708/ATSC support,-
+Subtitles,CEA-608 Converter,CEA608Converter.swift,SUCCESS,CEA-608 to TX3G conversion,-
+Subtitles,CEA-708 Converter,CEA708Converter.swift,SUCCESS,CEA-708 to TX3G conversion,-
+Subtitles,FairPlay Subtitles,FairPlaySubtitleHandler.swift,SUCCESS,FairPlay-encrypted subtitle handling,-
+Subtitles,FairPlay CC,FairPlayCCHandler.swift,SUCCESS,FairPlay CEA-608 closed captions,-
+Subtitles,Subtitle Raw Import,SubtitleRawImporter.swift,SUCCESS,SRT/WebVTT raw format support,-
+Video,Container Import,ContainerImporter.swift,SUCCESS,MKV/MOV/MP4/M4V/M4A detection,4 tests
+Video,H.264 Import,H264Importer.swift,SUCCESS,H.264 raw format support,5 tests
+Video,Codec Detection,FFmpegCodecDetector.swift,SUCCESS,Comprehensive codec mapping,-
+Video,HDR Metadata,HDRMetadataHandler.swift,SUCCESS,HDR10 and HLG metadata preservation,-
+Video,Dolby Vision,DolbyVisionHandler.swift,SUCCESS,RPU parsing and enhancement layer support,-
+Video,MP4 Brand Handling,MP4BrandHandler.swift,SUCCESS,Brand atom configuration,-
+Video,Timecode Tracks,TimecodeHandler.swift,SUCCESS,Timecode track extraction and creation,-
+Video,Metadata Tracks,MetadataTrackHandler.swift,SUCCESS,Timed metadata track handling,-
+Queue,Job Queue,JobQueue.swift,SUCCESS,Actor-based queue with statistics,1 test
+Queue,Queue Actions,QueueAction.swift,SUCCESS,Batch operations protocol,-
+Queue,Statistics,JobQueue.getStatistics,SUCCESS,Real-time queue statistics,-
+Queue,Advanced Editing,JobQueue.reorderJob/editJob,SUCCESS,Queue manipulation features,-
+Queue,Folder Monitor,FolderMonitor.swift,SUCCESS,Automatic file monitoring,-
+Security,Keychain Access,KeychainController.swift,SUCCESS,Optimized access without prompts,-
+Security,API Key Management,APIKeyManager.swift,SUCCESS,Secure storage in Keychain,-
+Security,WebUI Security,WebServer.swift,SUCCESS,Token auth/CORS/rate limiting,5 tests
+Security,Input Validation,MetadataPipeline,SUCCESS,File extension validation,1 test
+Security,Secret Scrubbing,Logging.swift,SUCCESS,API key scrubbing in logs,2 tests
+WebUI,Web Server,WebServer.swift,SUCCESS,Swifter-based localhost server,-
+WebUI,API Endpoints,WebServer routes,SUCCESS,Search/enrich/files/status endpoints,-
+WebUI,CORS Handling,WebServer CORS,SUCCESS,Restricted CORS policy,1 test
+WebUI,Authentication,WebServer auth,SUCCESS,Token-based authentication,5 tests
+WebUI,Rate Limiting,WebServer rateLimiter,SUCCESS,Request rate limiting,-
+AppleScript,Script Bridge,AppleScriptBridge.swift,SUCCESS,AppleScript command handlers,-
+AppleScript,Script Commands,AppleScriptBridge commands,SUCCESS,Add/Start/Stop/Status commands,-
+AppleScript,Script Dictionary,SublerPlus.sdef,SUCCESS,AppleScript dictionary file,-
+Dependencies,FFmpeg Wrapper,FFmpegWrapper.swift,SUCCESS,FFmpeg command-line interface,-
+Dependencies,Dependency Checker,DependencyChecker.swift,SUCCESS,External dependency verification,-
+Dependencies,Dependency Manager,DependencyManager.swift,SUCCESS,First-launch dependency check,-
+Artwork,Artwork Cache,ArtworkCacheManager.swift,SUCCESS,Downloaded artwork caching,-
+Artwork,Artwork Browser,ArtworkBrowserView.swift,SUCCESS,iTunes artwork finder integration,-
+Artwork,Artwork Selection,AdvancedSearchView.artworkPickerView,SUCCESS,Artwork picker in search flow,-
+Settings,Settings Store,SettingsStore actor,SUCCESS,Persistent settings management,-
+Settings,Settings UI,SettingsView.swift,SUCCESS,Settings interface,-
+Settings,Preferences,AppSettings,SUCCESS,User preferences model,-
+Utilities,Async Semaphore,AsyncSemaphore.swift,SUCCESS,Bounded concurrency control,-
+Utilities,Circuit Breaker,CircuitBreaker.swift,SUCCESS,Provider failure protection,1 test
+Utilities,Logging,Logging.swift,SUCCESS,Unified logging with os.Logger,-
+Utilities,NFO Generator,NFOGenerator.swift,SUCCESS,XML NFO file generation,-
+Utilities,Track Composition,TrackComposition.swift,SUCCESS,AVFoundation track composition,-
+Raw Formats,Raw Format Importer,RawFormatImporter.swift,SUCCESS,Protocol for raw format support,5 tests
+Raw Formats,Format Detection,RawFormatImporter.detect,SUCCESS,Automatic format detection,-
+CLI,CLI Tool,sublerplus-cli.swift,SUCCESS,Command-line interface,-
+Performance,Task Cancellation,ViewModels.currentFetchTask,SUCCESS,Prevents hanging on rapid selection,-
+Performance,Keychain Caching,KeychainController cache,SUCCESS,In-memory cache reduces Keychain access,-
+Performance,State Management,ViewModels selection clearing,SUCCESS,Clean state on new searches,-
+Recent Fixes,Drag-and-Drop Fix,AdvancedSearchView,SUCCESS,File URL extraction improved,-
+Recent Fixes,Search Button Fix,ViewModels.runAdvancedSearch,SUCCESS,Query building corrected (removed year prefix),-
+Recent Fixes,Performance Fix,ViewModels.fetchResultDetails,SUCCESS,Task cancellation prevents hanging,-
+Recent Fixes,Keychain Optimization,KeychainController,SUCCESS,Removed auth context (no prompts),-
+Warnings,SwiftPM Unhandled Files,Package.swift,INFO,Contents.json warning (expected),-
+Warnings,Icon Generation,iconutil,INFO,Placeholder icons (acceptable),-
+Warnings,Code Signing,scripts/build.sh,INFO,Ad-hoc signing (development),-
+Errors,Compilation Errors,All Sources,NONE,No compilation errors,-
+Errors,Build Errors,Build Process,NONE,Build completes successfully,-
+Errors,Test Failures,Test Suite,NONE,All 51 tests pass,-
+

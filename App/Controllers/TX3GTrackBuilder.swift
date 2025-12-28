@@ -44,7 +44,7 @@ public enum TX3GTrackBuilder {
         AtomCodec.adjustSize(in: &fileData, at: moov.offset, by: delta)
         
         // Adjust file size (ftyp size if present, or add ftyp)
-        if let ftyp = AtomCodec.findAtom(in: fileData, type: "ftyp", start: 0, length: 32) {
+        if AtomCodec.findAtom(in: fileData, type: "ftyp", start: 0, length: 32) != nil {
             // File size is typically in the first 4 bytes if > 4GB, or implicit
             // For simplicity, we'll update the first 4 bytes if it's a size field
         }

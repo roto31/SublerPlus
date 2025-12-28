@@ -119,11 +119,11 @@ public final class AudioConverter: @unchecked Sendable {
         exportSession.audioTimePitchAlgorithm = .timeDomain
         
         // Monitor progress
-        let progressTask = Task.detached {
+        // Note: AVAssetExportSession is not Sendable, but we access it only on MainActor
+        let progressTask = Task { @MainActor in
             while exportSession.status == .exporting {
-                await MainActor.run {
-                    progressHandler?(Double(exportSession.progress))
-                }
+                let currentProgress = exportSession.progress
+                progressHandler?(Double(currentProgress))
                 try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
             }
         }

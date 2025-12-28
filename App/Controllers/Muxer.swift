@@ -71,12 +71,12 @@ public final class Muxer: @unchecked Sendable {
         exportSession.outputFileType = determineOutputFileType(for: outputURL)
         
         // Set up progress monitoring
+        // Note: AVAssetExportSession is not Sendable, but we access it only on MainActor
         if let progressHandler = progressHandler {
-            Task {
+            Task { @MainActor in
                 while exportSession.status == .waiting || exportSession.status == .exporting {
-                    await MainActor.run {
-                        progressHandler(Double(exportSession.progress))
-                    }
+                    let currentProgress = exportSession.progress
+                    progressHandler(Double(currentProgress))
                     try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
                 }
             }
@@ -289,7 +289,7 @@ public final class Muxer: @unchecked Sendable {
                                 // Check if this is an enhancement layer track
                                 if dolbyHandler.isDolbyVision(track: elTrack) {
                                     // Find corresponding composition track
-                                    if let compVideoTrack = composition.tracks.first(where: { $0.mediaType == .video }) as? AVMutableCompositionTrack {
+                                    if let compVideoTrack = composition.tracks.first(where: { $0.mediaType == .video }) {
                                         // Preserve enhancement layer
                                         _ = try? dolbyHandler.preserveEnhancementLayer(
                                             elTrack: elTrack,
