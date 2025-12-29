@@ -1,6 +1,59 @@
 import SwiftUI
 import SublerPlusCore
 
+// MARK: - SearchResultsList (Equatable for performance)
+
+struct SearchResultsList: View, Equatable {
+    let results: [MetadataResult]
+    @Binding var selectedResult: MetadataResult?
+    
+    var body: some View {
+        List(selection: $selectedResult) {
+            ForEach(results, id: \.id) { result in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(result.title)
+                            .font(.headline)
+                        Spacer()
+                        if let mediaType = result.mediaType {
+                            Text(mediaType)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(mediaType == "TV show" ? Color.blue.opacity(0.1) : Color.green.opacity(0.1))
+                                .cornerRadius(4)
+                        }
+                    }
+                    HStack {
+                        if let year = result.year {
+                            Text("Year: \(year)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        if let score = result.score {
+                            Text("Score: \(String(format: "%.2f", score))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    if let source = result.source {
+                        Text("Source: \(source)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .tag(result)
+            }
+        }
+        .frame(minHeight: 200)
+    }
+    
+    static func == (lhs: SearchResultsList, rhs: SearchResultsList) -> Bool {
+        lhs.results == rhs.results && lhs.selectedResult?.id == rhs.selectedResult?.id
+    }
+}
+
 struct AdvancedSearchView: View {
     @ObservedObject var viewModel: AppViewModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -14,6 +67,7 @@ struct AdvancedSearchView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         Text("Advanced Search")
                             .font(.title2)
+                            .accessibilityAddTraits(.isHeader)
                         
                         // Drag indicator when no file is loaded
                         if viewModel.droppedFile == nil {
@@ -40,40 +94,61 @@ struct AdvancedSearchView: View {
                         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                             GridRow {
                                 Text("Title")
+                                    .accessibilityLabel("Title")
                                 TextField("Title or keywords", text: $viewModel.searchTitle)
                                     .textFieldStyle(.roundedBorder)
+                                    .accessibilityLabel("Title or keywords")
+                                    .accessibilityHint("Enter title or keywords to search for")
                             }
                             GridRow {
                                 Text("Studio/Network")
+                                    .accessibilityLabel("Studio or Network")
                                 TextField("Studio or network", text: $viewModel.searchStudio)
                                     .textFieldStyle(.roundedBorder)
+                                    .accessibilityLabel("Studio or network")
+                                    .accessibilityHint("Enter studio or network name")
                             }
                             GridRow {
                                 Text("Year")
+                                    .accessibilityLabel("Year range")
                                 HStack {
                                     TextField("From", text: $viewModel.searchYearFrom)
                                         .textFieldStyle(.roundedBorder)
                                         .frame(width: 80)
+                                        .accessibilityLabel("Year from")
+                                        .accessibilityHint("Start year for search range")
                                     Text("to")
+                                        .accessibilityLabel("to")
                                     TextField("To", text: $viewModel.searchYearTo)
                                         .textFieldStyle(.roundedBorder)
                                         .frame(width: 80)
+                                        .accessibilityLabel("Year to")
+                                        .accessibilityHint("End year for search range")
                                 }
                             }
                             GridRow {
                                 Text("Actors/Actresses")
+                                    .accessibilityLabel("Actors or Actresses")
                                 TextField("Comma-separated", text: $viewModel.searchActors)
                                     .textFieldStyle(.roundedBorder)
+                                    .accessibilityLabel("Actors or actresses")
+                                    .accessibilityHint("Enter comma-separated list of actors")
                             }
                             GridRow {
                                 Text("Directors/Producers")
+                                    .accessibilityLabel("Directors or Producers")
                                 TextField("Comma-separated", text: $viewModel.searchDirectors)
                                     .textFieldStyle(.roundedBorder)
+                                    .accessibilityLabel("Directors or producers")
+                                    .accessibilityHint("Enter comma-separated list of directors or producers")
                             }
                             GridRow {
                                 Text("Rough Air Date (TV)")
+                                    .accessibilityLabel("Rough Air Date for TV")
                                 TextField("YYYY-MM-DD", text: $viewModel.searchAirDate)
                                     .textFieldStyle(.roundedBorder)
+                                    .accessibilityLabel("Rough air date")
+                                    .accessibilityHint("Enter approximate air date in YYYY-MM-DD format")
                             }
                         }
                         advancedFooter
@@ -413,6 +488,7 @@ struct AdvancedSearchView: View {
                             ProgressView()
                                 .scaleEffect(0.7)
                                 .frame(width: 12, height: 12)
+                                .accessibilityLabel("Searching")
                         }
                         Text(viewModel.isSearching ? "Searching..." : "Search")
                     }
@@ -420,6 +496,8 @@ struct AdvancedSearchView: View {
                 .keyboardShortcut(.return, modifiers: [])
                 .buttonStyle(.borderedProminent)
                 .disabled(viewModel.isSearching)
+                .accessibilityLabel(viewModel.isSearching ? "Searching" : "Search")
+                .accessibilityHint("Search metadata providers with the entered criteria")
                 Spacer()
                 Picker("Provider weighting", selection: $viewModel.providerPreference) {
                     Text("Balanced").tag(ProviderPreference.balanced)
@@ -482,37 +560,18 @@ struct AdvancedSearchView: View {
                 .padding()
             } else {
                 HStack(alignment: .top, spacing: 16) {
-                    // Results list
+                    // Results list (using EquatableView for performance)
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Search Results")
                             .font(.headline)
-                        List(selection: $viewModel.selectedSearchResult) {
-                            ForEach(viewModel.searchResults, id: \.id) { result in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(result.title)
-                                        .font(.headline)
-                                    HStack {
-                                        if let year = result.year {
-                                            Text("Year: \(year)")
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                        }
-                                        if let score = result.score {
-                                            Text("Score: \(String(format: "%.2f", score))")
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                        }
-                                    }
-                                    if let source = result.source {
-                                        Text("Source: \(source)")
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
-                                .tag(result)
-                            }
-                        }
-                        .frame(minHeight: 200)
+                            .accessibilityAddTraits(.isHeader)
+                        SearchResultsList(
+                            results: viewModel.searchResults,
+                            selectedResult: $viewModel.selectedSearchResult
+                        )
+                        .equatable()
+                        .accessibilityLabel("Search results list")
+                        .accessibilityHint("List of metadata search results. Use arrow keys to navigate, Enter to select.")
                     }
                     .frame(width: 300)
 
@@ -547,8 +606,20 @@ struct AdvancedSearchView: View {
     @ViewBuilder
     private func resultDetailsView(for result: MetadataResult) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Result Details")
-                .font(.headline)
+            HStack {
+                Text("Result Details")
+                    .font(.headline)
+                Spacer()
+                if let mediaType = result.mediaType {
+                    Text(mediaType)
+                        .font(.caption)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(mediaType == "TV show" ? Color.blue : Color.green)
+                        .cornerRadius(6)
+                }
+            }
             
             Divider()
             
@@ -643,6 +714,8 @@ struct AdvancedSearchView: View {
                         viewModel.showApplyConfirmation = true
                     }
                     .buttonStyle(.borderedProminent)
+                    .accessibilityLabel("Apply metadata")
+                    .accessibilityHint("Apply selected metadata to the dropped file")
                 }
             } else {
                 // Loading state

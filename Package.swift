@@ -9,7 +9,8 @@ let package = Package(
     products: [
         .library(name: "SublerPlusCore", targets: ["SublerPlusCore"]),
         .executable(name: "SublerPlusApp", targets: ["SublerPlusApp"]),
-        .executable(name: "SublerPlusCLI", targets: ["SublerPlusCLI"])
+        .executable(name: "SublerPlusCLI", targets: ["SublerPlusCLI"]),
+        .executable(name: "MCPServerExecutable", targets: ["MCPServerExecutable"])
     ],
     dependencies: [
         .package(url: "https://github.com/httpswift/swifter.git", from: "1.5.0"),
@@ -35,10 +36,28 @@ let package = Package(
             ],
             resources: []
         ),
+        .target(
+            name: "MCPServer",
+            dependencies: [
+                "SublerPlusCore"
+            ],
+            path: "MCPServer",
+            exclude: ["main.swift"]
+        ),
+        .executableTarget(
+            name: "MCPServerExecutable",
+            dependencies: [
+                "SublerPlusCore",
+                "MCPServer"
+            ],
+            path: "MCPServer",
+            sources: ["main.swift"]
+        ),
         .executableTarget(
             name: "SublerPlusApp",
             dependencies: [
                 "SublerPlusCore",
+                "MCPServer",
                 .product(name: "Swifter", package: "swifter"),
                 .product(name: "Alamofire", package: "Alamofire")
             ],

@@ -23,6 +23,7 @@ struct FileListView: View {
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                             }
+                            .accessibilityElement(children: .combine)
                             Spacer()
                             Button {
                                 viewModel.enrich(file: fileURL)
@@ -34,6 +35,7 @@ struct FileListView: View {
                             .accessibilityHint("Apply metadata to this file")
                         }
                         .contentShape(Rectangle())
+                        .accessibilityElement(children: .contain)
                     }
                 }
                 .listStyle(.inset)
@@ -77,6 +79,7 @@ struct FileListView: View {
                         Label("Batch enqueue", systemImage: "text.append")
                     }
                     .buttonStyle(.borderedProminent)
+                    .accessibilityLabel("Batch enqueue")
                     .accessibilityHint("Queue the selected file or all files for batch processing")
                     Button {
                     Task { await viewModel.refreshJobs() }
@@ -84,6 +87,8 @@ struct FileListView: View {
                         Label("Refresh Jobs", systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(.bordered)
+                    .accessibilityLabel("Refresh jobs")
+                    .accessibilityHint("Refresh the job queue status")
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -131,16 +136,19 @@ struct FileListView: View {
                                     Label("\(stats.queued)", systemImage: "clock")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
+                                        .accessibilityLabel("\(stats.queued) queued")
                                 }
                                 if stats.running > 0 {
                                     Label("\(stats.running)", systemImage: "arrow.clockwise")
                                         .font(.caption)
                                         .foregroundColor(.blue)
+                                        .accessibilityLabel("\(stats.running) running")
                                 }
                                 if stats.succeeded > 0 {
                                     Label("\(stats.succeeded)", systemImage: "checkmark.circle")
                                         .font(.caption)
                                         .foregroundColor(.green)
+                                        .accessibilityLabel("\(stats.succeeded) succeeded")
                                 }
                                 if stats.failed > 0 {
                                     Label("\(stats.failed)", systemImage: "exclamationmark.triangle")
