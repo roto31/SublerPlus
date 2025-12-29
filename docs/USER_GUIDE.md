@@ -41,10 +41,26 @@ Uses same providers and pipeline; ambiguous items are deferred for later resolut
 - Add a folder (if configured) to auto-enqueue new media into the JobQueue with bounded concurrency and retries.
 
 ## Shortcuts
-- Add Files ⌘N, Enrich ⌘E, Search ⌘F, Refresh Status ⌘R, Settings ⌘,.
+- **Standard macOS Shortcuts**:
+  - ⌘Q: Quit
+  - ⌘W: Close Window
+  - ⌘, (comma): Preferences
+- **Application Shortcuts**:
+  - ⌘N: Add Files
+  - ⌘E: Enrich Selected
+  - ⌘F: Search
+  - ⌘R: Refresh Status
+  - ⌘⇧O: Open Web UI in Browser
+  - ⌘M: Minimize Window
 
-## Accessibility & HIG
-- Sidebar/navigation labels and hints.
-- Toolbar and drop targets labeled with hints; ambiguity sheet accessible.
-- Respects Reduce Motion/Transparency via SwiftUI environment.
+## Accessibility & HIG Compliance
+- **Full VoiceOver Support**: All interactive elements have comprehensive accessibility labels, hints, and values
+- **Keyboard Navigation**: All features accessible via keyboard with logical tab order
+- **Dynamic Type**: Text scales with system preferences
+- **High Contrast Mode**: Full support for accessibility display preferences
+- **Reduce Motion/Transparency**: Respects system accessibility settings via SwiftUI environment
+- **Error Handling**: User-friendly error dialogs with clear messages and recovery suggestions
+- **Form Validation**: Visual feedback for invalid inputs (red borders, error messages)
+- **Button Hierarchy**: Proper primary/secondary/destructive button styles following HIG
+- **About Window**: Accessible via App menu (⌘, for About SublerPlus)
 

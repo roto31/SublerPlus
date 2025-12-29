@@ -1,61 +1,123 @@
 # SublerPlus
 
-SwiftUI macOS app (12+) for MP4 metadata enrichment. Includes adult + standard providers, pure-Swift MP4 atom tagging, embedded WebUI (Swifter), CLI, secure defaults (Keychain, localhost-only server, retry/backoff + circuit breakers), and accessibility/HIG-aligned UI.
+A modern macOS application for enriching MP4 media files with metadata from multiple providers, built with SwiftUI and full Subler integration.
 
-## Highlights
-- MP4 tagging: AVFoundation passthrough + Swift AtomCodec (moov/udta/meta/ilst) for title/artist/genre/date/cover.
-- Providers: ThePornDB (adult), TMDB, TVDB, Subler local. Retry/backoff and circuit breakers per provider.
-- Disambiguation: modal picker; remembers choices (filename + studio + year) for batch auto-resolve.
-- Jobs: actor-backed queue with bounded concurrency; drag/drop and batch ingest; activity feed; statistics tracking.
-- WebUI: Swifter on 127.0.0.1, optional token auth (`WEBUI_TOKEN`), CORS locked, size/type checks, rate limiting.
-- CLI: same pipeline as the app for headless runs.
-- Accessibility/HIG: labeled controls, keyboard shortcuts, reduce-motion/transparency aware.
-- Logging: os.Logger; secret scrubbing; `LOG_LEVEL=minimal` to reduce PII.
-- Codec Support: Comprehensive video/audio/subtitle codec support via AVFoundation and FFmpeg.
-- Muxing: Full muxing/remuxing with audio conversion, subtitle embedding, HDR/Dolby Vision preservation.
-- Presets: Configurable muxing presets with import/export functionality.
+## Features
+
+- **Multi-Provider Metadata Search**: TPDB, TMDB, TVDB, and local Subler metadata
+- **Modern SwiftUI Interface**: Native macOS app with full HIG compliance
+- **Accessibility Support**: Comprehensive VoiceOver and keyboard navigation support
+- **Web UI**: Embedded web interface for remote access (localhost only)
+- **CLI Tool**: Command-line interface for batch processing
+- **Job Queue**: Background processing with bounded concurrency
+- **Subtitle Support**: Automatic subtitle lookup via OpenSubtitles
+- **Watch Folders**: Automatic processing of new media files
+- **AppleScript Support**: Automation and scripting capabilities
+- **MCP Server**: Model Context Protocol server for AI assistant integration
 
 ## Requirements
-- macOS 12+; Swift 5.9+.
-- API keys: Stored in Keychain via Settings, or provided via env vars.
-- Optional dependencies: FFmpeg (for advanced codec support and conversion), Tesseract (for bitmap subtitle OCR).
 
-## Setup
+- macOS 12.0 or later
+- Swift 5.9+
+- Xcode 14+ (for building from source)
+- Optional: FFmpeg (for advanced codec support)
+- Optional: Tesseract OCR (for bitmap subtitle conversion)
+
+## Installation
+
+### Building from Source
+
+1. Clone the repository:
 ```bash
-# build & test
-swift build
-swift test
-
-# run app (example with env keys)
-WEBUI_TOKEN=yourtoken TPDB_API_KEY=... TMDB_API_KEY=... TVDB_API_KEY=... swift run SublerPlusApp
-
-# run CLI
-swift run sublerplus-cli /path/to/file.mp4
+git clone https://github.com/roto31/SublerPlus.git
+cd SublerPlus
 ```
-- In-app Settings can store keys in Keychain and manage WebUI token.
-- Optional WebUI token is recommended for local API use.
 
-## Commands
-- App: `swift run SublerPlusApp`
-- CLI: `swift run sublerplus-cli /path/to/file.mp4`
-- Security lane: `make security` (warnings-as-errors + `swift test --filter Security`)
+2. Build using the build script:
+```bash
+./scripts/build-with-subler.sh --release
+```
 
-## Security Posture
-- Localhost-only WebUI with optional token auth.
-- CORS restricted to 127.0.0.1; content-type/body-size checks; rate limiting.
-- Keys in Keychain; logs scrub secrets; minimal log level supported.
-- Atom writes use temp + replace; no native shims.
+The built app will be available at `build/SublerPlus.app`.
+
+### API Keys
+
+Set API keys for metadata providers:
+
+- **TPDB**: ThePornDB API key (optional, for adult content)
+- **TMDB**: The Movie Database API key
+- **TVDB**: TheTVDB API key
+- **OpenSubtitles**: OpenSubtitles API key (for subtitle lookup)
+
+Keys can be set:
+- In-app Settings (stored in Keychain)
+- Environment variables: `TPDB_API_KEY`, `TMDB_API_KEY`, `TVDB_API_KEY`, `OPENSUBTITLES_API_KEY`
+
+## Usage
+
+### Main Application
+
+1. **Add Files**: Use "Add Files" (⌘N) or drag-and-drop files into the app
+2. **Enrich**: Select a file and click "Enrich" (⌘E) or use batch enqueue
+3. **Search**: Use the Advanced Search view to find metadata manually
+4. **Settings**: Configure providers, output directories, and preferences (⌘,)
+
+### Keyboard Shortcuts
+
+- ⌘N: Add Files
+- ⌘E: Enrich Selected
+- ⌘F: Search
+- ⌘W: Close Window
+- ⌘Q: Quit
+- ⌘, (comma): Preferences
+- ⌘⇧O: Open Web UI in Browser
+
+### CLI Tool
+
+```bash
+./build/SublerPlusCLI /path/to/file.mp4
+```
+
+Options:
+- `--no-adult`: Disable adult metadata providers
+- `--auto-best`: Automatically select best match
+
+## Architecture
+
+- **SwiftUI**: Modern declarative UI framework
+- **Actors**: Thread-safe concurrency with `SettingsStore`, `ArtworkCacheManager`, `JobQueue`, `StatusStream`
+- **MP42Foundation**: Full Subler integration for MP4 manipulation
+- **Swifter**: Embedded web server for Web UI
+- **Alamofire**: HTTP networking for metadata providers
+
+See [docs/TECHNICAL.md](docs/TECHNICAL.md) for detailed architecture documentation.
 
 ## Documentation
-- `docs/USER_GUIDE.md` — usage and UI
-- `docs/HOW_TO_GUIDE.md` — comprehensive step-by-step guide with troubleshooting
-- `docs/TECHNICAL.md` — architecture
-- `docs/SECURITY.md` — threat model and hardening
-- `docs/TROUBLESHOOTING.md` — common issues
-- `CHANGELOG.md` — version history and changes
+
+- [User Guide](docs/USER_GUIDE.md) - Getting started and usage instructions
+- [Technical Overview](docs/TECHNICAL.md) - Architecture and implementation details
+- [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
+- [Security](docs/SECURITY.md) - Security features and best practices
 
 ## Contributing
-- Keep SwiftPM build/tests green: `swift test`.
-- Run `make security` before PRs.
-- Do not log secrets; prefer Keychain for credentials.
+
+Contributions are welcome! Please see [Subler/CONTRIBUTING.md](Subler/CONTRIBUTING.md) for guidelines.
+
+## License
+
+See [Subler/LICENSE](Subler/LICENSE) for license information.
+
+## Acknowledgments
+
+- Built on [Subler](https://github.com/lhc70000/subler) by Damiano Galassi
+- Uses [MP42Foundation](https://github.com/lhc70000/subler) for MP4 manipulation
+- Metadata providers: TPDB, TMDB, TVDB, OpenSubtitles
+
+## Version History
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
+
+---
+
+**Current Version**: 0.4.2-beta
 

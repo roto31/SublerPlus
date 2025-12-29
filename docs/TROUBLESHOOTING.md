@@ -20,8 +20,11 @@
 - If retaining originals, ensure output directory is set and writable.
 
 ## Build issues
-- Use `./scripts/build.sh --release` for release; add `--skip-tests` only if necessary.
-- Prune old archives in `build/App builds/` to reclaim space.
+- Use `./scripts/build-with-subler.sh --release` for release builds with MP42Foundation support
+- Add `--skip-tests` to skip test execution
+- Add `--skip-mp42` to skip MP42Foundation build (use existing framework)
+- Prune old archives in `build/App builds/` to reclaim space
+- If MCPServer build fails, ensure Swifter dependency is properly configured in Package.swift
 # Troubleshooting
 
 ## Build Issues
@@ -48,6 +51,17 @@
 
 ## Artwork Missing
 - Some providers may not return artwork; or image exceeds cache size limit (5MB default).
+
+## Accessibility Issues
+- If VoiceOver doesn't announce elements properly, ensure you're using the latest version (0.4.2-beta+)
+- Keyboard navigation: Use Tab to navigate between elements, arrow keys in lists
+- Error dialogs: All errors are presented via ErrorPresenter with clear messages
+- Form validation: Required fields show red borders when empty (e.g., Web UI Token)
+
+## Menu Shortcuts Not Working
+- Ensure you're using standard macOS shortcuts (⌘Q, ⌘W, ⌘,)
+- Custom shortcuts may conflict with system shortcuts; check System Preferences > Keyboard > Shortcuts
+- About window: Access via App menu > About SublerPlus
 
 ## Logging
 - Structured logs available in Console.app under subsystem `com.sublerplus.app`.

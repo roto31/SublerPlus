@@ -49,6 +49,15 @@
 - `os.Logger` categories in `Logging.swift`.
 - StatusStream retains recent lines for UI and WebUI.
 
+## Human Interface Guidelines (HIG) Compliance
+- **Menu Structure**: Standard macOS menus (App, File, Edit, View, Window, Help)
+- **Accessibility**: Comprehensive VoiceOver support with labels, hints, and values
+- **Error Presentation**: ErrorPresenter utility for user-friendly error dialogs
+- **Keyboard Shortcuts**: Standard macOS conventions (⌘Q, ⌘W, ⌘,)
+- **Button Hierarchy**: Primary (.borderedProminent), secondary (.bordered), destructive (role: .destructive)
+- **Form Validation**: Visual feedback for invalid inputs
+- **Window Management**: Standard window controls and menu items
+
 ## Muxing & Remuxing
 - **Muxer**: Full muxing/remuxing support with track selection and conversion
 - **Audio Conversion**: AVFoundation for AAC, FFmpeg for other codecs (FLAC, Vorbis, MP3, Opus, TrueHD, MLP)
